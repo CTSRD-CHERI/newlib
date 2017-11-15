@@ -52,7 +52,7 @@
 	.ent	_start
 _start:
 	.set	noreorder
-	la		gp, _gp					# set the global data pointer, defined in the linker script
+	PTR_LA		gp, _gp					# set the global data pointer, defined in the linker script
 	.end	_start
 
     /*
@@ -63,8 +63,8 @@ _start:
 	.globl	zerobss
 	.ent	zerobss
 zerobss:
-	la		v0, _fbss				# These variables are defined in the linker script
-	la		v1, _end
+	PTR_LA		v0, _fbss				# These variables are defined in the linker script
+	PTR_LA		v1, _end
 
 3:
 	sw		zero, 0(v0)
@@ -75,9 +75,9 @@ zerobss:
      * Setup a small stack so we can run some C code,
      * and get the usable memory size.
      */
-	la		t0, __lstack
+	PTR_LA		t0, __lstack
 	addiu	sp, t0, STARTUP_STACK_SIZE
-	la		a0, __memsize
+	PTR_LA		a0, __memsize
 	jal		get_mem_info
 	nop
 
@@ -112,27 +112,27 @@ zerobss:
 	.globl	init
 	.ent	init
 init:
-	la		t9, hardware_init_hook	# init the hardware if needed
+	PTR_LA		t9, hardware_init_hook	# init the hardware if needed
 	beq		t9, zero, 6f
 	nop
 	jal		t9
 	nop
 6:
-	la		t9, software_init_hook	# init the software if needed
+	PTR_LA		t9, software_init_hook	# init the software if needed
 	beq		t9, zero, 7f
 	nop
 	jal		t9
 	nop
 7:
-	la		a0, __do_global_dtors
+	PTR_LA		a0, __do_global_dtors
 	jal		atexit
 	nop
 
 #ifdef GCRT0
 	.globl	_ftext
 	.globl	_extext
-	la		a0, _ftext
-	la		a1, _etext
+	PTR_LA		a0, _ftext
+	PTR_LA		a1, _etext
 	jal		monstartup
 	nop
 #endif

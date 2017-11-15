@@ -1,4 +1,8 @@
-main()
+char inbyte(void);
+int outbyte(char c);
+
+
+int main()
 {
   outbyte ('&');
   outbyte ('@');
@@ -9,5 +13,5 @@ main()
   
   print ("\r\nDone...");
 
-  return;
+  return 0;
 }

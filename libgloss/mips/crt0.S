@@ -15,7 +15,9 @@
  */
 
 /* This file does not use any floating-point ABI.  */
+#ifndef __clang__
 	.gnu_attribute 4,0
+#endif
 
 #ifdef __mips16
 /* This file contains 32 bit assembly code.  */
@@ -37,12 +39,16 @@
    .sbss section under embedded-pic, or before we've set up gp.  */
 #ifdef __mips_embedded_pic
 # ifdef __mips64
-#  define LA(t,x) la t,x-PICBASE ; daddu t,s0,t
+#  define LA(t,x) dla t,x-PICBASE ; daddu t,s0,t
 # else
 #  define LA(t,x) la t,x-PICBASE ; addu t,s0,t
 # endif
 #else /* __mips_embedded_pic */
-# define LA(t,x) la t,x
+# ifdef __mips64
+#  define LA(t,x) dla t,x
+# else
+#  define LA(t,x) la t,x
+# endif
 #endif /* __mips_embedded_pic */
 
 	.comm	__memsize, 12
@@ -57,7 +63,7 @@
  */
 	nop
 
-	.globl	hardware_hazard_hook .text
+	.globl	hardware_hazard_hook #.text
 	.globl	_start
 	.ent	_start
 _start:
@@ -176,7 +182,7 @@ _start:
  * zero out the bss section.
  */
 	.globl	__memsize
-	.globl	get_mem_info .text
+	.globl	get_mem_info #.text
 	.globl	__stack
 	.globl	__global
 	.ent	zerobss
@@ -189,9 +195,9 @@ zerobss:
 	sw	zero,-4(v0)
 	bne	v0,v1,1b
 2:
-	la	t0, __lstack			# make a small stack so we
+	LA (t0, __lstack)			# make a small stack so we
 	addiu	sp, t0, STARTUP_STACK_SIZE	# can run some C code
-	la	a0, __memsize			# get the usable memory size
+	LA (a0, __memsize)			# get the usable memory size
 	jal	get_mem_info
 
 	/* setup the stack pointer */
@@ -200,9 +206,9 @@ zerobss:
 
 	/* NOTE: a0[0] contains the amount of memory available, and
 	         not the last memory address. */
-	la	a0, __memsize
+	LA (a0, __memsize)
 	lw	t0,0(a0)			# last address of memory available
-	la	t1,K0BASE			# cached kernel memory
+	PTR_LA	t1,K0BASE			# cached kernel memory
 	addu	t0,t0,t1			# get the end of memory address
 	/* Allocate 32 bytes for the register parameters.  Allocate 16
 	   bytes for a null argv and envp.  Round the result up to 64
@@ -216,12 +222,12 @@ zerobss:
  * initialize target specific stuff. Only execute these
  * functions it they exist.
  */
-	.globl	hardware_init_hook .text
-	.globl	software_init_hook .text
+	.globl	hardware_init_hook #.text
+	.globl	software_init_hook #.text
 	.type	_fini,@function
 	.type	_init,@function
-	.globl	atexit .text
-	.globl	exit .text
+	.globl	atexit #.text
+	.globl	exit #.text
 	.ent	init
 init:
 	LA (t9, hardware_init_hook)		# init the hardware if needed
@@ -278,7 +284,7 @@ init:
  *          executables that contain a complete world to be linked with
  *          just the crt0.o object.
  */
-	.globl	hardware_exit_hook .text
+	.globl	hardware_exit_hook #.text
 	.globl	_exit
 	.ent _exit
 _exit:

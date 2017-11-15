@@ -28,7 +28,7 @@
 #define INDIRECT(name,index)			\
 	.globl	name;				\
 	.ent	name;				\
-name:	la	$2,+(0xbfc00000+((index)*8));	\
+name:	PTR_LA	$2,+(0xbfc00000+((index)*8));	\
 	j	$2;				\
 	.end name
 

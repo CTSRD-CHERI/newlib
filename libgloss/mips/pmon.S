@@ -46,7 +46,7 @@
 	.globl	name;					\
 	.ent	name;					\
 	.set	noreorder;				\
-name:	la	$2,+(PMON_VECTOR+((index)*4));		\
+name:	PTR_LA	$2,+(PMON_VECTOR+((index)*4));		\
 	lw	$2,0($2);				\
 	j	$2;					\
 	nop;						\
@@ -58,7 +58,7 @@ name:	la	$2,+(PMON_VECTOR+((index)*4));		\
 	.globl	name;					\
 	.ent	name;					\
 	.set	noreorder;				\
-name:	la	$2,+(PMON_VECTOR+((index)*4));		\
+name:	PTR_LA	$2,+(PMON_VECTOR+((index)*4));		\
 	lw	$2,0($2);				\
 	SUBU	sp,sp,0x40;				\
 	sd	ra,0x38(sp);				\

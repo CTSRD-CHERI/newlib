@@ -195,22 +195,22 @@ __buserr:
 	beq	k0,$0,__buserr_do
 	nop
 	# call the previous handler
-	la	k0,__previous
+	PTR_LA	k0,__previous
 	jr	k0
 	nop
 	#
 __buserr_do:
 	# TODO: check that the cause is indeed a bus error
 	# - if not then just jump to the previous handler
-	la	k0,__k1_save
+	PTR_LA	k0,__k1_save
 	sd	k1,0(k0)
 	#
-        la      k1,__buserr_cnt
+        PTR_LA  k1,__buserr_cnt
         lw      k0,0(k1)        # increment counter
         addu    k0,1
         sw      k0,0(k1)
 	#
-	la	k0,__k1_save
+	PTR_LA	k0,__k1_save
 	ld	k1,0(k0)
 	#
         mfc0    k0,C0_EPC
@@ -265,10 +265,10 @@ __default_buserr_handler:
 baseaddr:
 	daddiu	a0,a0,0x0180
 	# a0 = base vector table address
-	la	a1,__exception_code_end
-	la	a2,__exception_code
+	PTR_LA	a1,__exception_code_end
+	PTR_LA	a2,__exception_code
 	subu	a1,a1,a2
-	la	a3,__previous
+	PTR_LA	a3,__previous
 	# there must be a better way of doing this????
 copyloop:
 	lw	v0,0(a0)
@@ -281,7 +281,7 @@ copyloop:
 	subu	a1,a1,4
 	bne	a1,$0,copyloop
 	nop
-        la      a0,__buserr_cnt
+        PTR_LA  a0,__buserr_cnt
 	sw	$0,0(a0)
 	j	ra
 	nop
@@ -306,10 +306,10 @@ __restore_buserr_handler:
 res_baseaddr:
 	daddiu	a0,a0,0x0180
 	# a0 = base vector table address
-	la	a1,__exception_code_end
-	la	a3,__exception_code
+	PTR_LA	a1,__exception_code_end
+	PTR_LA	a3,__exception_code
 	subu	a1,a1,a3
-	la	a3,__previous
+	PTR_LA	a3,__previous
 	# there must be a better way of doing this????
 res_copyloop:
 	lw	v0,0(a3)
@@ -331,7 +331,7 @@ __buserr_count:
 	# restore original (monitor) bus error handler
 	# in:  void
 	# out: unsigned int __buserr_cnt
-        la      v0,__buserr_cnt
+        PTR_LA  v0,__buserr_cnt
 	lw	v0,0(v0)
 	j	ra
 	nop

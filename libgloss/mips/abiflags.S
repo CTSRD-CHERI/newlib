@@ -54,6 +54,8 @@
 #define Val_GNU_MIPS_ABI_MSA_ANY   0  /* Not tagged or not using any ABIs affected by the differences.  */
 #define Val_GNU_MIPS_ABI_MSA_128   1  /* Using 128-bit MSA.  */
 
+
+#ifndef __clang__
 /* MIPS ABI flags structure */
   .struct 0
 ABIFlags_version:
@@ -78,5 +80,17 @@ ABIFlags_flags1:
   .struct ABIFlags_flags1 + 4
 ABIFlags_flags2:
   .struct ABIFlags_flags2 + 4
-
+#else
+.set ABIFlags_version, 0
+.set ABIFlags_isa_level, 2
+.set ABIFlags_isa_rev, 3
+.set ABIFlags_gpr_size, 4
+.set ABIFlags_cpr1_size, 5
+.set ABIFlags_cpr2_size, 6
+.set ABIFlags_fp_abi, 7
+.set ABIFlags_isa_ext, 8
+.set ABIFlags_ases, 12
+.set ABIFlags_flags1, 16
+.set ABIFlags_flags2, 20
+#endif
 /*> EOF abiflags.S <*/

@@ -155,4 +155,11 @@
 #define HIT_SET_VIRTUAL_SI		BUILD_CACHE_OP(HIT_SET_VIRTUAL,CACHE_SI)
 #define HIT_SET_VIRTUAL_SD              BUILD_CACHE_OP(HIT_SET_VIRTUAL,CACHE_SD)
 
+#ifdef __mips64
+# define PTR_LA dla
+#else
+# define PTR_LA la
+#endif
+
+
 /*> EOF regs.S <*/

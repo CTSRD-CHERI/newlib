@@ -55,14 +55,14 @@ __entry_exit_handler:
 /* Must avoid using 'la' pseudo-op because it uses gp register, which
    may not have a good value in an exception handler. */
   
-#	la	k0, int_count		/* intcount = (intcount + 1) & 0xf */
+#	PTR_LA	k0, int_count		/* intcount = (intcount + 1) & 0xf */
 	lui	k0 ,%hi(int_count)
 	addiu	k0, k0 ,%lo(int_count)
 	lw	k1, (k0)
 	addiu	k1, k1, 1
 	andi	k1, k1, 0x0f
 	sw	k1, (k0)
-#	la	k0, int_cause		/* k1 = &int_cause[intcount] */
+#	PTR_LA	k0, int_cause		/* k1 = &int_cause[intcount] */
 	lui	k0, %hi(int_cause)
 	addiu	k0, k0, %lo(int_cause)
 	sll	k1, k1, 2
@@ -100,7 +100,7 @@ deareg:	and	t1, t0, 0x0700		/* Isolate the three a-bits */
 	srl	t1, 6			/* Adjust them so x4 is applied */
 	slt     t2, t1, 17		/* See if this is the exit instruction */
 	beqz    t2, doexit
-	la	t2, savea
+	PTR_LA	t2, savea
 	subu	t2, t1
 	jr	t2			/* Jump into the instruction table */
 	rfe				/* We run the rest in user-mode */
@@ -162,13 +162,13 @@ leavex:	jr	ra			/* Exit to ra */
 ri_in_32:
 other_ri:
 check_others:				/* call the previous handler */
-	la	k0,__previous
+	PTR_LA	k0,__previous
 	jr	k0
 	nop
 
 __exception_code:
 	.set noreorder
-	la	k0, __entry_exit_handler
+	PTR_LA	k0, __entry_exit_handler
 #	lui	k0, %hi(exception)
 #	addiu	k0, k0, %lo(exception)
 	jr	k0
@@ -201,8 +201,8 @@ __install_entry_handler:
 baseaddr:
 	addiu	a0,a0,0x080	/* a0 = base vector table address */
 	li	a1,(__exception_code_end - __exception_code)
-	la	a2,__exception_code
-	la	a3,__previous
+	PTR_LA	a2,__exception_code
+	PTR_LA	a3,__previous
 /* there must be a better way of doing this???? */
 copyloop:
 	lw	v0,0(a0)
@@ -242,7 +242,7 @@ __remove_entry_handler:
 res_baseaddr:
 	addiu	a0,a0,0x0180	/* a0 = base vector table address */
 	li	a1,(__exception_code_end - __exception_code)
-	la	a3,__previous
+	PTR_LA	a3,__previous
 
 /* there must be a better way of doing this???? */
 res_copyloop:

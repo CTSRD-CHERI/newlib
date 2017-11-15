@@ -106,7 +106,7 @@
 _start:
 	.set	noreorder
     /* Set the global data pointer, defined in the linker script.  */
-	la		gp, _gp
+	PTR_LA		gp, _gp
 
 #ifndef __mips_soft_float
     /* If compiled for hard float, set the FPU mode based on the
@@ -128,8 +128,8 @@ _start:
 	.ent	_zerobss
 _zerobss:
     /* These variables are defined in the linker script.  */
-	la		v0, _fbss
-	la		v1, _end
+	PTR_LA		v0, _fbss
+	PTR_LA		v1, _end
 
 3:
 	sw		zero, 0(v0)
@@ -145,7 +145,7 @@ _zerobss:
 	.globl	_stackinit
 	.ent	_stackinit
 _stackinit:
-	la	t0, _lstack
+	PTR_LA	t0, _lstack
 	addiu	sp, t0, (STARTUP_STACK_SIZE - 32)
 	jal	__libcfe_init
 	nop
@@ -173,36 +173,36 @@ _stackinit:
      * initialize target specific stuff. Only execute these
      * functions it they exist.
      */
-	.globl	hardware_init_hook .text
-	.globl	software_init_hook .text
+	.globl	hardware_init_hook # .text
+	.globl	software_init_hook # .text
 	.type	_fini,@function
 	.type	_init,@function
-	.globl	atexit .text
-	.globl	exit .text
+	.globl	atexit # .text
+	.globl	exit # .text
 	.globl	_crt0init
 	.ent	_crt0init
 _crt0init:
-	la		t9, hardware_init_hook	# init the hardware if needed
+	PTR_LA		t9, hardware_init_hook	# init the hardware if needed
 	beq		t9, zero, 6f
 	nop
 	jal		t9
 	nop
 6:
-	la		t9, software_init_hook	# init the software if needed
+	PTR_LA		t9, software_init_hook	# init the software if needed
 	beq		t9, zero, 7f
 	nop
 	jal		t9
 	nop
 7:
-	la		a0, _fini
+	PTR_LA		a0, _fini
 	jal		atexit
 	nop
 
 #ifdef GCRT0
 	.globl	_ftext
 	.globl	_extext
-	la		a0, _ftext
-	la		a1, _etext
+	PTR_LA		a0, _ftext
+	PTR_LA		a1, _etext
 	jal		monstartup
 	nop
 #endif
@@ -245,7 +245,7 @@ _exit:
 	nop
 #endif
 
-	la	t0, hardware_exit_hook
+	PTR_LA	t0, hardware_exit_hook
 	beq	t0,zero,1f
 	nop
 	jal	t0

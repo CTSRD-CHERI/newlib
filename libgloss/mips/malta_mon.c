@@ -34,16 +34,20 @@ static inline void yamon_print_count(const char* s, size_t count) {
 }
 
 
+#define ANSI_RESET "\x1B[00m"
+#define ANSI_BOLD "\x1B[1m"
+#define ANSI_RED "\x1B[31m"
+#define ANSI_GREEN "\x1B[32m"
+#define ANSI_YELLOW "\x1B[33m"
+
+#define debug_msg(msg) do { yamon_print(ANSI_YELLOW); yamon_print(msg); yamon_print(ANSI_RESET); } while (0)
 
 // QEMU-CHERI extension:
-#define	 MALTA_SHUTDOWN 0x44	/* write this to MALTA_SOFTRES for board shutdown */
-
+#define	 MALTA_SHUTDOWN 0x44 /* write this to MALTA_SOFTRES for board shutdown */
 
 void hardware_exit_hook(void) {
-	yamon_print(__func__);
-	yamon_print("\n");
 	volatile int* softres = (volatile int*)MIPS_PHYS_TO_KSEG1(MALTA_SOFTRES);
-	yamon_print("Shutting down now!\n");
+	debug_msg(ANSI_RED "Shutting down now!\n");
 	*softres = MALTA_SHUTDOWN; // CHERI Shutdown extension
 	for (volatile int i = 0; i < 100; i++) {
 		__asm__ volatile ("ssnop" :::"memory");
@@ -56,22 +60,22 @@ void hardware_exit_hook(void) {
 
 // extern int errno;
 
+
 extern int snprintf(char *__restrict, size_t, const char *__restrict, ...) __attribute__((__format__ (__printf__, 3, 4)));
 
 int read(int fd, char* buf, size_t size) {
 	char tmpbuf[256];
 	snprintf(tmpbuf, sizeof(tmpbuf), "Attempting to read %zd bytes from fd %d\n", size, fd);
-	yamon_print(tmpbuf);
+	debug_msg(tmpbuf);
 	errno = ENOSYS;
 	return -1;
 }
 
 int write(int fd, char* buf, size_t size) {
 	char tmpbuf[256];
-	snprintf(tmpbuf, sizeof(tmpbuf), "Attempting to write %zd bytes to fd %d\n", size, fd);
-	yamon_print(tmpbuf);
-	snprintf(tmpbuf, sizeof(tmpbuf), "Mesage was '%s'\n", buf);
-	yamon_print(tmpbuf);
+	snprintf(tmpbuf, sizeof(tmpbuf), "Attempting to write %zd bytes to "
+		"fd %d: Message is " ANSI_GREEN "%s\n", size, fd, buf);
+	debug_msg(tmpbuf);
 	if (fd == 1 || fd == 2)
 		yamon_print_count(buf, size);
 	errno = ENOSYS;
@@ -85,7 +89,8 @@ int close(int fd) {
 
 
 struct s_mem
-{ unsigned int size;
+{
+  unsigned int size;
   unsigned int icsize;
   unsigned int dcsize;
 };

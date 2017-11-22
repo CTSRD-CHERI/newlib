@@ -71,10 +71,10 @@ case "${target}" in
         script_list="lsi"
         bsp_list=liblsi.a
 	;;
-  mips64vr5*-*-*)
+  mips64*-qemu-elf | mips64vr5*-*-*)
 	part_specific_obj="vr5xxx.o cma101.o"
 	part_specific_defines=-DR5000
-        script_list="idt pmon ddb ddb-kseg0 lsi idtecoff nullmon"
+        script_list="idt pmon ddb ddb-kseg0 lsi idtecoff nullmon qemu"
         bsp_list="libidt.a libpmon.a liblsi.a libnullmon.a"
 	;;
   mips64vr-*-* | mips64vrel-*-*)
@@ -86,7 +86,7 @@ case "${target}" in
 	crt0="crt0_cfe.o crt0.o"
         part_specific_obj="vr4300.o cma101.o"
 	part_specific_defines=
-        script_list="idt pmon ddb ddb-kseg0 lsi cfe idtecoff nullmon sde32 sde64 mti32 mti64 mti64_n32 mti64_64"
+        script_list="idt pmon ddb ddb-kseg0 lsi cfe idtecoff nullmon sde32 sde64 mti32 mti64 mti64_n32 mti64_64 qemu"
         bsp_list="libidt.a libpmon.a liblsi.a libcfe.a libnullmon.a"
         ;;
 esac

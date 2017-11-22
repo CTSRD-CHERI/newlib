@@ -33,6 +33,7 @@ strlen (const char *str)
 }
 #elif defined(__mips64)
 __asm__(""			/* 64-bit MIPS targets */
+	"	.text\n"
 	"	.set	noreorder\n"
 	"	.set	nomacro\n"
 	"	.globl	strlen\n"
@@ -52,6 +53,7 @@ __asm__(""			/* 64-bit MIPS targets */
 
 #else
 __asm__(""			/* 32-bit MIPS targets */
+	"	.text\n"
 	"	.set	noreorder\n"
 	"	.set	nomacro\n"
 	"	.globl	strlen\n"

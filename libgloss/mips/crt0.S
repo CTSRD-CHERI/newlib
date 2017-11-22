@@ -225,7 +225,9 @@ zerobss:
 	.globl	hardware_init_hook #.text
 	.globl	software_init_hook #.text
 	.type	_fini,@function
+	.weak	_fini
 	.type	_init,@function
+	.weak	_init
 	.globl	atexit #.text
 	.globl	exit #.text
 	.ent	init
@@ -239,7 +241,9 @@ init:
 	jalr	t9
 7:
 	LA (a0, _fini)
+	beq	a0,zero,8f
 	jal	atexit
+8:
 
 #ifdef GCRT0
 	.globl	_ftext
@@ -250,8 +254,10 @@ init:
 #endif
 
 
-	jal	_init				# run global constructors
-
+	LA (t9, _init)				# run global constructors
+	beq	t9,zero,9f
+	jalr	t9
+9:
 	addiu	a1,sp,32			# argv = sp + 32
 	addiu	a2,sp,40			# envp = sp + 40
 #if __mips64

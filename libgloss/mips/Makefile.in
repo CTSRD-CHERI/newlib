@@ -74,6 +74,7 @@ GENOBJS = syscalls.o fstat.o getpid.o isatty.o kill.o \
 GENOBJS2 = open.o close.o read.o write.o
 IDTOBJS = idtmon.o @part_specific_obj@ ${GENOBJS}
 PMONOBJS = pmon.o @part_specific_obj@ ${GENOBJS}
+MALTA_MONOBJS = malta_mon.o @part_specific_obj@ ${GENOBJS}
 LSIOBJS = lsipmon.o @part_specific_obj@ ${GENOBJS}
 DVEOBJS = dvemon.o @part_specific_obj@ ${GENOBJS} ${GENOBJS2}
 JMR3904OBJS = jmr3904-io.o @part_specific_obj@ ${GENOBJS} ${GENOBJS2}
@@ -121,6 +122,10 @@ libidt.a: $(IDTOBJS)
 
 libpmon.a: $(PMONOBJS)
 	${AR} ${ARFLAGS} $@ $(PMONOBJS)
+	${RANLIB} $@
+
+libmalta_mon.a: $(MALTA_MONOBJS)
+	${AR} ${ARFLAGS} $@ $(MALTA_MONOBJS)
 	${RANLIB} $@
 
 liblsi.a: $(LSIOBJS)

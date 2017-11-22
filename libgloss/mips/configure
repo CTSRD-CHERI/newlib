@@ -2572,11 +2572,17 @@ case "${target}" in
         script_list="lsi"
         bsp_list=liblsi.a
 	;;
-  mips64*-qemu-elf | mips64vr5*-*-*)
+  mips64vr5*-*-*)
 	part_specific_obj="vr5xxx.o cma101.o"
 	part_specific_defines=-DR5000
-        script_list="idt pmon ddb ddb-kseg0 lsi idtecoff nullmon qemu"
+        script_list="idt pmon ddb ddb-kseg0 lsi idtecoff nullmon"
         bsp_list="libidt.a libpmon.a liblsi.a libnullmon.a"
+	;;
+  mips64*-qemu-elf)
+	part_specific_obj="vr5xxx.o cma101.o"
+	part_specific_defines=-DR5000 -DQEMU_MALTA=1
+        script_list="qemu-malta"
+        bsp_list="libmalta_mon.a libnullmon.a"
 	;;
   mips64vr-*-* | mips64vrel-*-*)
 	part_specific_obj="vr5xxx.o cma101.o"

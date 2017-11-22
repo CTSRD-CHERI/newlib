@@ -2,7 +2,7 @@
 
 ENTRY(_start)
 INPUT(crt0.o)
-GROUP(-lc -lpmon)
+GROUP(-lc -lmalta_mon)
 SEARCH_DIR(.)
 __DYNAMIC  =  0;
 
@@ -21,7 +21,6 @@ PROVIDE (__stack = 0);
  * We have to initalize them twice, so we multiple object file
  * formats, as some prepend an underscore.
  */
-PROVIDE (hardware_exit_hook = 0);
 PROVIDE (hardware_hazard_hook = 0);
 PROVIDE (hardware_init_hook = 0);
 PROVIDE (software_init_hook = 0);

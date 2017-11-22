@@ -111,6 +111,9 @@ AC_SUBST(bsp_list)
 AC_SUBST(crt0)
 AC_SUBST(pcrt0)
 
+AC_SUBST(CFLAGS_FOR_TARGET)
+AC_SUBST(CC_FOR_TARGET)
+
 AC_CONFIG_FILES(Makefile,
 . ${libgloss_topdir}/config-ml.in,
 srcdir=${srcdir}

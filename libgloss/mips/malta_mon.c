@@ -33,7 +33,6 @@ static inline void yamon_print_count(const char* s, size_t count) {
 	YAMON_PRINT_COUNT(s, count);
 }
 
-
 #define ANSI_RESET "\x1B[00m"
 #define ANSI_BOLD "\x1B[1m"
 #define ANSI_RED "\x1B[31m"
@@ -73,18 +72,36 @@ int read(int fd, char* buf, size_t size) {
 
 int write(int fd, char* buf, size_t size) {
 	char tmpbuf[256];
-	snprintf(tmpbuf, sizeof(tmpbuf), "Attempting to write %zd bytes to "
-		"fd %d: Message is " ANSI_GREEN "%s\n", size, fd, buf);
-	debug_msg(tmpbuf);
-	if (fd == 1 || fd == 2)
+	if (fd == 1 || fd == 2) {
 		yamon_print_count(buf, size);
-	errno = ENOSYS;
-	return -1;
+		return size;
+	}
+	else {
+		snprintf(tmpbuf, sizeof(tmpbuf), "Attempting to write %zd bytes to "
+			"fd %d: Message is " ANSI_GREEN "%s\n", size, fd, buf);
+		debug_msg(tmpbuf);
+		errno = ENOSYS;
+		return -1;
+	}
 }
 
 int close(int fd) {
 	errno = EBADF;
 	return -1;
+}
+
+
+// Needed by C++ new:
+extern void* memalign(size_t align, size_t nbytes); // provided by newlib
+// POSIX API:
+int posix_memalign(void** ptr, size_t alignment, size_t nbytes) {
+	void* ret = memalign(alignment, nbytes);
+	if (ret) {
+		*ptr = ret;
+		return 0;
+	}
+	*ptr = NULL;
+	return ENOMEM;
 }
 
 

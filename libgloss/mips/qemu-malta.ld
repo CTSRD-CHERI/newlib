@@ -2,7 +2,7 @@
 
 ENTRY(_start)
 INPUT(crt0.o)
-GROUP(-lc -lmalta_mon)
+GROUP(-lc -lmalta_mon -lclang_rt.builtins-mips64)
 SEARCH_DIR(.)
 __DYNAMIC  =  0;
 

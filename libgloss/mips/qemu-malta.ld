@@ -24,6 +24,8 @@ PROVIDE (__stack = 0);
 PROVIDE (hardware_hazard_hook = 0);
 PROVIDE (hardware_init_hook = 0);
 PROVIDE (software_init_hook = 0);
+/* QEMU memory is already zeroed on startup, so no need to waste time zeroing */
+PROVIDE(hardware_bss_zero_on_startup = 1);
 
 SECTIONS
 {

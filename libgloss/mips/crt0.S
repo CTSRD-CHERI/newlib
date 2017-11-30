@@ -185,16 +185,20 @@ _start:
 	.globl	get_mem_info #.text
 	.globl	__stack
 	.globl	__global
+	.weak hardware_bss_zero_on_startup
 	.ent	zerobss
 zerobss:
+	LA (v0, hardware_bss_zero_on_startup)
+	bnez v0, zerobss_done			# skip zeroing bss on systems like QEMU
+
 	LA (v0, _fbss)
 	LA (v1, _end)
-	beq	v0,v1,2f
+	beq	v0,v1,zerobss_done
 1:
 	addiu	v0,v0,4
 	sw	zero,-4(v0)
 	bne	v0,v1,1b
-2:
+zerobss_done:
 	LA (t0, __lstack)			# make a small stack so we
 	addiu	sp, t0, STARTUP_STACK_SIZE	# can run some C code
 	LA (a0, __memsize)			# get the usable memory size

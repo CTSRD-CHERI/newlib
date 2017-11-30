@@ -26,6 +26,7 @@ typedef long register_t;
 #include "maltareg.h"
 #include "yamon.h"
 
+#include <sys/param.h>
 #include <errno.h>
 extern int snprintf(char *__restrict, size_t, const char *__restrict, ...) __attribute__((__format__ (__printf__, 3, 4)));
 
@@ -36,6 +37,9 @@ static inline void yamon_print(const char* s) {
 static inline void yamon_print_count(const char* s, size_t count) {
 	YAMON_PRINT_COUNT(s, count);
 }
+
+
+
 
 #define ANSI_RESET "\x1B[00m"
 #define ANSI_BOLD "\x1B[1m"
@@ -66,6 +70,13 @@ void hardware_exit_hook(register_t status) {
 }
 
 yamon_env_t* fenvp;
+static register_t bootloader_memsize = 0;
+static register_t env_memsize = 0;
+static register_t env_ememsize = 0;
+static register_t total_memsize = 0;
+
+extern long atol(const char *nptr);
+extern int strcmp(const char *s1, const char *s2);
 
 void hardware_hazard_hook(register_t argc, yamon_ptr* argv, yamon_env_t* envp, register_t memsize) {
 	debug_printf("%s 123: argc=%ld, argv=%p, envp=%p, memsize=0x%lx\n", __func__, argc, argv, envp, memsize);
@@ -77,8 +88,17 @@ void hardware_hazard_hook(register_t argc, yamon_ptr* argv, yamon_env_t* envp, r
 		const char* name = yamon_ptr_to_real_ptr(char, envp[i].name);
 		const char* value = yamon_ptr_to_real_ptr(char, envp[i].value);
 		debug_printf("envp[%d]: '%s'='%s'\n", i, name, value);
+		if (strcmp(name, "memsize") == 0) {
+			env_memsize = atol(value);
+		} else if (strcmp(name, "ememsize") == 0) {// memsize above 256MB
+			env_ememsize = atol(value);
+		}
 	}
 	fenvp = envp;
+	bootloader_memsize = memsize;
+	// The MAX() macro evaluate arguments twice...
+	total_memsize = MAX(bootloader_memsize, env_memsize);
+	total_memsize = MAX(env_ememsize, total_memsize);
 }
 
 
@@ -141,7 +161,7 @@ extern char _end[];   /* Defined in qemu-malta.ld */
 
 #define BOARD_MEM_SIZE (64 * 1024 * 1024)
 void get_mem_info (struct s_mem *mem) {
-  mem->size = BOARD_MEM_SIZE - (_end - _ftext);
+  mem->size = total_memsize - (_end - _ftext);
 }
 
 

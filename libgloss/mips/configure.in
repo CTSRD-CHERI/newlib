@@ -78,8 +78,8 @@ case "${target}" in
         bsp_list="libidt.a libpmon.a liblsi.a libnullmon.a"
 	;;
   mips64*-qemu-elf)
-	part_specific_obj="vr5xxx.o cma101.o"
-	part_specific_defines=-DR5000 -DQEMU_MALTA=1
+	part_specific_obj="vr5xxx.o"
+	part_specific_defines="-DR5000 -DQEMU_MALTA=1"
         script_list="qemu-malta"
         bsp_list="libmalta_mon.a libnullmon.a"
 	;;
@@ -117,8 +117,11 @@ AC_SUBST(bsp_list)
 AC_SUBST(crt0)
 AC_SUBST(pcrt0)
 
-AC_SUBST(CFLAGS_FOR_TARGET)
-AC_SUBST(CC_FOR_TARGET)
+
+AC_SUBST(OBJDUMP)
+AC_SUBST(OBJCOPY)
+dnl AC_SUBST(CFLAGS_FOR_TARGET)
+dnl AC_SUBST(CC_FOR_TARGET)
 
 AC_CONFIG_FILES(Makefile,
 . ${libgloss_topdir}/config-ml.in,

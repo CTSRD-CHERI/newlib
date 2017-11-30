@@ -59,6 +59,7 @@ SECTIONS
   .jcr : { KEEP (*(.jcr)) }
   .ctors    :
   {
+    PROVIDE_HIDDEN(__ctors_start = .);
     /* gcc uses crtbegin.o to find the start of
        the constructors, so we make sure it is
        first.  Because this is a wildcard, it
@@ -79,14 +80,17 @@ SECTIONS
     KEEP (*(EXCLUDE_FILE (*crtend.o) .ctors))
     KEEP (*(SORT(.ctors.*)))
     KEEP (*(.ctors))
+    PROVIDE_HIDDEN(__ctors_end = .);
   }
 
   .dtors    :
   {
+    PROVIDE_HIDDEN(__dtors_start = .);
     KEEP (*crtbegin.o(.dtors))
     KEEP (*(EXCLUDE_FILE (*crtend.o) .dtors))
     KEEP (*(SORT(.dtors.*)))
     KEEP (*(.dtors))
+    PROVIDE_HIDDEN(__dtors_end = .);
   }
 
   . = .;

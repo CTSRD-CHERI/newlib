@@ -81,7 +81,7 @@ static inline void yamon_print_count(const char* s, size_t count) {
 } while(0)
 
 
-#include "ctors-dtors.c"
+#include "ctors-dtors.h"
 
 
 // QEMU-CHERI extension:
@@ -111,6 +111,7 @@ void hardware_exception_handler(void* epc, register_t cause, void* bad_vaddr, re
 	debug_printf(ANSI_RED "Exception: Cause=%lx EPC=%p BadVaddr=%p, Status=%lx, count=%lx\n",
 		cause, epc, bad_vaddr, status, count);
 	debug_printf(ANSI_RED "Cannot continue, ABORTING!\n");
+	// Don't call destructors if we've crashed, just shutdown
 	do_malta_shutdown();
 }
 
@@ -148,6 +149,7 @@ void hardware_hazard_hook(register_t argc, yamon_ptr* argv, yamon_env_t* envp, r
 	debug_printf("Installing exception handler\n");
 	memcpy((void*)(intptr_t)(int32_t)0x80000080, &__stub_exception_handler,
 	       &__stub_exception_handler_end - &__stub_exception_handler);
+	crt_call_constructors();
 }
 
 

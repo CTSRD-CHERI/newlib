@@ -25,6 +25,9 @@ typedef __SIZE_TYPE__ size_t;
 #include "maltareg.h"
 #include "yamon.h"
 
+#include <errno.h>
+extern int snprintf(char *__restrict, size_t, const char *__restrict, ...) __attribute__((__format__ (__printf__, 3, 4)));
+
 // monitor API:
 static inline void yamon_print(const char* s) {
 	YAMON_PRINT(s);
@@ -40,13 +43,19 @@ static inline void yamon_print_count(const char* s, size_t count) {
 #define ANSI_YELLOW "\x1B[33m"
 
 #define debug_msg(msg) do { yamon_print(ANSI_YELLOW); yamon_print(msg); yamon_print(ANSI_RESET); } while (0)
+#define debug_printf(msg, args...) do { \
+	char _debug_buf[512];		\
+	snprintf(_debug_buf, sizeof(_debug_buf), ANSI_YELLOW msg ANSI_RESET, args); \
+	yamon_print(_debug_buf);	\
+} while(0)
 
 // QEMU-CHERI extension:
 #define	 MALTA_SHUTDOWN 0x44 /* write this to MALTA_SOFTRES for board shutdown */
 
-void hardware_exit_hook(void) {
+void hardware_exit_hook(register_t status) {
 	volatile int* softres = (volatile int*)MIPS_PHYS_TO_KSEG1(MALTA_SOFTRES);
-	debug_msg(ANSI_RED "Shutting down now!\n");
+	debug_printf(ANSI_RED "Shutting down now!\n"
+		     ANSI_GREEN "Exit code was %ld\n", status);
 	*softres = MALTA_SHUTDOWN; // CHERI Shutdown extension
 	for (volatile int i = 0; i < 100; i++) {
 		__asm__ volatile ("ssnop" :::"memory");
@@ -55,12 +64,11 @@ void hardware_exit_hook(void) {
 	*softres = MALTA_GORESET;  // fall back to restart
 }
 
-#include <errno.h>
 
 // extern int errno;
 
 
-extern int snprintf(char *__restrict, size_t, const char *__restrict, ...) __attribute__((__format__ (__printf__, 3, 4)));
+// extern int errno;
 
 int read(int fd, char* buf, size_t size) {
 	char tmpbuf[256];

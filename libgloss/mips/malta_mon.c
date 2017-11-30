@@ -205,13 +205,10 @@ struct s_mem
   unsigned int icsize;
   unsigned int dcsize;
 };
-#warning "FIXME: actually get the memory size from qemu"
-// Assume we have at least 64 MB
 
 extern char _ftext[]; /* Defined in qemu-malta.ld */
 extern char _end[];   /* Defined in qemu-malta.ld */
 
-#define BOARD_MEM_SIZE (64 * 1024 * 1024)
 void get_mem_info (struct s_mem *mem) {
   mem->size = total_memsize - (_end - _ftext);
 }

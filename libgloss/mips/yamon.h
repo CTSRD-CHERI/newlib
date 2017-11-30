@@ -76,9 +76,13 @@ typedef int (*t_yamon_syscon_read)(t_yamon_syscon_id id, void *param,
 	((t_yamon_syscon_read)(YAMON_FUNC(YAMON_SYSCON_READ_OFS)))	\
 	(id, param, size)
 
+// the yamon pointers need to be sign extended!
+typedef int32_t yamon_ptr;
+#define yamon_ptr_to_real_ptr(type, ptr) ((type*)(intptr_t)ptr)
+
 typedef struct {
-	char *name;
-	char *value;
+	yamon_ptr name; // actually a 32bit char*
+	yamon_ptr value; // actually a 32bit char*
 } yamon_env_t;
 
 #define SYSCON_BOARD_CPU_CLOCK_FREQ_ID	34	/* UINT32 */
@@ -88,6 +92,6 @@ typedef struct {
 char*		yamon_getenv(char *name);
 uint32_t	yamon_getcpufreq(void);
 
-extern yamon_env_t *fenvp[];
+extern yamon_env_t *fenvp;
 
 #endif /* _MALTA_YAMON_H_ */

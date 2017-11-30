@@ -5,6 +5,7 @@ typedef __UINT64_TYPE__ uint64_t;
 typedef __INT32_TYPE__ int32_t;
 typedef __INT64_TYPE__ int64_t;
 typedef __SIZE_TYPE__ size_t;
+typedef long register_t;
 
 /* FreeBSD sys/mips/include/cpuregs.h */
 #define	MIPS_KUSEG_START		0x00000000
@@ -64,8 +65,21 @@ void hardware_exit_hook(register_t status) {
 	*softres = MALTA_GORESET;  // fall back to restart
 }
 
+yamon_env_t* fenvp;
 
-// extern int errno;
+void hardware_hazard_hook(register_t argc, yamon_ptr* argv, yamon_env_t* envp, register_t memsize) {
+	debug_printf("%s 123: argc=%ld, argv=%p, envp=%p, memsize=0x%lx\n", __func__, argc, argv, envp, memsize);
+	// argv and envp entries are 32-bit pointers
+	for (int i = 0; i < argc; ++i) {
+		debug_printf("argv[%d] = %s\n", i, yamon_ptr_to_real_ptr(char, argv[i]));
+	}
+	for (int i = 0; envp[i].name != 0 ; ++i) {
+		const char* name = yamon_ptr_to_real_ptr(char, envp[i].name);
+		const char* value = yamon_ptr_to_real_ptr(char, envp[i].value);
+		debug_printf("envp[%d]: '%s'='%s'\n", i, name, value);
+	}
+	fenvp = envp;
+}
 
 
 // extern int errno;

@@ -330,3 +330,21 @@ _exit:
 #endif
 
 /* EOF crt0.S */
+
+.weak hardware_exception_handler
+.ent __stub_exception_handler
+.global __stub_exception_handler
+__stub_exception_handler:
+	# TODO: save the registers that we are clobbering
+	dmfc0 a0, C0_EPC
+	dmfc0 a1, C0_CAUSE
+	dmfc0 a2, C0_BADVADDR
+	dmfc0 a3, C0_SR
+	dmfc0 $8, C0_COUNT
+	PTR_LA t9, hardware_exception_handler
+	jalr t9
+	nop
+	eret
+.end __stub_exception_handler
+.global __stub_exception_handler_end
+__stub_exception_handler_end:

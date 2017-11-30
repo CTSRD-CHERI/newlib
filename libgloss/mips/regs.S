@@ -68,6 +68,7 @@
 #define PHYS_TO_K1(a)   ((unsigned)(a) | K1BASE)
 
 /* Standard Co-Processor 0 registers */
+#define C0_BADVADDR	$8		/* BadVaddr Register */
 #define C0_COUNT	$9		/* Count Register */
 #define C0_SR		$12		/* Status Register */
 #define C0_CAUSE	$13		/* last exception description */

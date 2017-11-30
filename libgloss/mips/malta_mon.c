@@ -48,25 +48,39 @@ static inline void yamon_print_count(const char* s, size_t count) {
 #define ANSI_YELLOW "\x1B[33m"
 
 #define debug_msg(msg) do { yamon_print(ANSI_YELLOW); yamon_print(msg); yamon_print(ANSI_RESET); } while (0)
-#define debug_printf(msg, args...) do { \
+#define debug_printf(msg, ...) do { \
 	char _debug_buf[512];		\
-	snprintf(_debug_buf, sizeof(_debug_buf), ANSI_YELLOW msg ANSI_RESET, args); \
+	snprintf(_debug_buf, sizeof(_debug_buf), ANSI_YELLOW msg ANSI_RESET,##__VA_ARGS__); \
 	yamon_print(_debug_buf);	\
 } while(0)
 
 // QEMU-CHERI extension:
 #define	 MALTA_SHUTDOWN 0x44 /* write this to MALTA_SOFTRES for board shutdown */
 
-void hardware_exit_hook(register_t status) {
+static void do_malta_shutdown(void) {
 	volatile int* softres = (volatile int*)MIPS_PHYS_TO_KSEG1(MALTA_SOFTRES);
-	debug_printf(ANSI_RED "Shutting down now!\n"
-		     ANSI_GREEN "Exit code was %ld\n", status);
 	*softres = MALTA_SHUTDOWN; // CHERI Shutdown extension
 	for (volatile int i = 0; i < 100; i++) {
 		__asm__ volatile ("ssnop" :::"memory");
 	}
 	yamon_print("Shutdown request failed, falling back to reset!\n");
 	*softres = MALTA_GORESET;  // fall back to restart
+}
+
+void hardware_exit_hook(register_t status) {
+	debug_printf(ANSI_RED "Shutting down now!\n"
+		     ANSI_GREEN "Exit code was %ld\n", status);
+	do_malta_shutdown();
+}
+
+extern char __stub_exception_handler;
+extern char __stub_exception_handler_end;
+
+void hardware_exception_handler(void* epc, register_t cause, void* bad_vaddr, register_t status, register_t count) {
+	debug_printf(ANSI_RED "Exception: Cause=%lx EPC=%p BadVaddr=%p, Status=%lx, count=%lx\n",
+		cause, epc, bad_vaddr, status, count);
+	debug_printf(ANSI_RED "Cannot continue, ABORTING!\n");
+	do_malta_shutdown();
 }
 
 yamon_env_t* fenvp;
@@ -77,6 +91,7 @@ static register_t total_memsize = 0;
 
 extern long atol(const char *nptr);
 extern int strcmp(const char *s1, const char *s2);
+extern void *memcpy(void *dest, const void *src, size_t n);
 
 void hardware_hazard_hook(register_t argc, yamon_ptr* argv, yamon_env_t* envp, register_t memsize) {
 	debug_printf("%s 123: argc=%ld, argv=%p, envp=%p, memsize=0x%lx\n", __func__, argc, argv, envp, memsize);
@@ -99,6 +114,9 @@ void hardware_hazard_hook(register_t argc, yamon_ptr* argv, yamon_env_t* envp, r
 	// The MAX() macro evaluate arguments twice...
 	total_memsize = MAX(bootloader_memsize, env_memsize);
 	total_memsize = MAX(env_ememsize, total_memsize);
+	debug_printf("Installing exception handler\n");
+	memcpy((void*)(intptr_t)(int32_t)0x80000080, &__stub_exception_handler,
+	       &__stub_exception_handler_end - &__stub_exception_handler);
 }
 
 

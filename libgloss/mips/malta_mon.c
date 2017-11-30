@@ -72,13 +72,19 @@ static inline void yamon_print_count(const char* s, size_t count) {
 #define ANSI_RED "\x1B[31m"
 #define ANSI_GREEN "\x1B[32m"
 #define ANSI_YELLOW "\x1B[33m"
+#define ANSI_BLUE "\x1B[34m"
 
-#define debug_msg(msg) do { yamon_print(ANSI_YELLOW); yamon_print(msg); yamon_print(ANSI_RESET); } while (0)
-#define debug_printf(msg, ...) do { \
+#define malta_printf(msg, ...) do { \
 	char _debug_buf[512];		\
-	snprintf(_debug_buf, sizeof(_debug_buf), ANSI_YELLOW msg ANSI_RESET,##__VA_ARGS__); \
+	snprintf(_debug_buf, sizeof(_debug_buf), msg,##__VA_ARGS__); \
 	yamon_print(_debug_buf);	\
 } while(0)
+
+#define warning_printf(msg, ...) malta_printf(ANSI_YELLOW msg ANSI_RESET,##__VA_ARGS__)
+#define error_printf(msg, ...) malta_printf(ANSI_RED msg ANSI_RESET,##__VA_ARGS__)
+#define debug_printf(msg, ...) malta_printf(ANSI_BLUE msg ANSI_RESET,##__VA_ARGS__)
+#define debug_msg(msg) do { yamon_print(ANSI_BLUE); yamon_print(msg); yamon_print(ANSI_RESET); } while (0)
+
 
 
 #include "ctors-dtors.h"
@@ -99,8 +105,8 @@ static void do_malta_shutdown(void) {
 
 void hardware_exit_hook(register_t status) {
 	crt_call_destructors();
-	debug_printf(ANSI_RED "Shutting down now!\n"
-		     ANSI_GREEN "Exit code was %ld\n", status);
+	malta_printf(/* ANSI_RED "Shutting down now!\n" */
+		     ANSI_GREEN "Exit code was %ld\n" ANSI_RESET, status);
 	do_malta_shutdown();
 }
 
@@ -108,9 +114,9 @@ extern char __stub_exception_handler;
 extern char __stub_exception_handler_end;
 
 void hardware_exception_handler(void* epc, register_t cause, void* bad_vaddr, register_t status, register_t count) {
-	debug_printf(ANSI_RED "Exception: Cause=%lx EPC=%p BadVaddr=%p, Status=%lx, count=%lx\n",
+	error_printf("Exception: Cause=%lx EPC=%p BadVaddr=%p, Status=%lx, count=%lx\n",
 		cause, epc, bad_vaddr, status, count);
-	debug_printf(ANSI_RED "Cannot continue, ABORTING!\n");
+	error_printf("Cannot continue, ABORTING!\n");
 	// Don't call destructors if we've crashed, just shutdown
 	do_malta_shutdown();
 }
@@ -126,7 +132,7 @@ extern int strcmp(const char *s1, const char *s2);
 extern void *memcpy(void *dest, const void *src, size_t n);
 
 void hardware_hazard_hook(register_t argc, yamon_ptr* argv, yamon_env_t* envp, register_t memsize) {
-	debug_printf("%s 123: argc=%ld, argv=%p, envp=%p, memsize=0x%lx\n", __func__, argc, argv, envp, memsize);
+	debug_printf("%s: argc=%ld, argv=%p, envp=%p, memsize=0x%lx\n", __func__, argc, argv, envp, memsize);
 	// argv and envp entries are 32-bit pointers
 	for (int i = 0; i < argc; ++i) {
 		debug_printf("argv[%d] = %s\n", i, yamon_ptr_to_real_ptr(char, argv[i]));
@@ -156,9 +162,7 @@ void hardware_hazard_hook(register_t argc, yamon_ptr* argv, yamon_env_t* envp, r
 // extern int errno;
 
 int read(int fd, char* buf, size_t size) {
-	char tmpbuf[256];
-	snprintf(tmpbuf, sizeof(tmpbuf), "Attempting to read %zd bytes from fd %d\n", size, fd);
-	debug_msg(tmpbuf);
+	error_printf("Attempting to read %zd bytes from fd %d\n", size, fd);
 	errno = ENOSYS;
 	return -1;
 }
@@ -170,9 +174,8 @@ int write(int fd, char* buf, size_t size) {
 		return size;
 	}
 	else {
-		snprintf(tmpbuf, sizeof(tmpbuf), "Attempting to write %zd bytes to "
-			"fd %d: Message is " ANSI_GREEN "%s\n", size, fd, buf);
-		debug_msg(tmpbuf);
+		error_printf("Attempting to write %zd bytes to fd %d: "
+			       "Message is " ANSI_GREEN "%s\n", size, fd, buf);
 		errno = ENOSYS;
 		return -1;
 	}

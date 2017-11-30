@@ -164,9 +164,9 @@ _start:
 	nop
 
 	/* Avoid hazard from C0_SR changes.  */
-	LA	(t0, hardware_hazard_hook)
-	beq	t0,zero,2f
-	jalr	t0
+	LA	(t9, hardware_hazard_hook)
+	beq	t9,zero,2f
+	jalr	t9
 2:
 
 
@@ -307,12 +307,12 @@ _exit:
 	.set	reorder
 #endif
 #ifdef GCRT0
-	LA (t0, _mcleanup)
-	jalr	t0
+	LA (t9, _mcleanup)
+	jalr	t9
 #endif
-	LA (t0, hardware_exit_hook)
-	beq	t0,zero,1f
-	jalr	t0
+	LA (t9, hardware_exit_hook)
+	beq	t9,zero,1f
+	jalr	t9
 1:
 
 	# break instruction can cope with 0xfffff, but GAS limits the range:

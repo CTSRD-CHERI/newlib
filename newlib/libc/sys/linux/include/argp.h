@@ -241,7 +241,7 @@ struct argp
      has been done, so if any of the replacement text also needs translation,
      that should be done by the filter function.  INPUT is either the input
      supplied to argp_parse, or NULL, if argp_help was called directly.  */
-  char *(*help_filter) (int __key, __const char *__text, void *__input);
+  char *(*help_filter) (int __key, __const char *__text, void *__input_arg);
 
   /* If non-zero the strings used in the argp library are translated using
      the domain described by this string.  Otherwise the currently installed
@@ -387,11 +387,11 @@ struct argp_state
 extern error_t argp_parse (__const struct argp *__restrict __argp,
 			   int __argc, char **__restrict __argv,
 			   unsigned __flags, int *__restrict __arg_index,
-			   void *__restrict __input) __THROW;
+			   void *__restrict __input_arg) __THROW;
 extern error_t __argp_parse (__const struct argp *__restrict __argp,
 			     int __argc, char **__restrict __argv,
 			     unsigned __flags, int *__restrict __arg_index,
-			     void *__restrict __input) __THROW;
+			     void *__restrict __input_arg) __THROW;
 
 /* Global variables.  */
 

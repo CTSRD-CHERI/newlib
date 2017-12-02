@@ -188,9 +188,9 @@ unsigned long long strtoull_l (const char *__restrict, char **__restrict, int,
 int	_EXFUN(system,(const char *__string));
 
 #if __SVID_VISIBLE || __XSI_VISIBLE >= 4
-long    _EXFUN(a64l,(const char *__input));
-char *  _EXFUN(l64a,(long __input));
-char *  _EXFUN(_l64a_r,(struct _reent *,long __input));
+long    _EXFUN(a64l,(const char *__str64));
+char *  _EXFUN(l64a,(long __value));
+char *  _EXFUN(_l64a_r,(struct _reent *,long __value));
 #endif
 #if __MISC_VISIBLE
 int	_EXFUN(on_exit,(_VOID (*__func)(int, _PTR),_PTR __arg));

@@ -262,6 +262,17 @@ init:
 	beq	t9,zero,9f
 	jalr	t9
 9:
+	# allow the hardware to setup argc, argv from the bootloader
+	.weak hardware_argv_hook
+	LA (t9, hardware_argv_hook)
+	beq	t9,zero,Lnull_arguments
+	nop
+	jalr	t9
+	nop
+	b Lcall_main
+	nop
+
+Lnull_arguments:
 	addiu	a1,sp,32			# argv = sp + 32
 	addiu	a2,sp,40			# envp = sp + 40
 #if __mips64
@@ -272,12 +283,15 @@ init:
 	sw	zero,(a2)
 #endif
 	move	a0,zero				# set argc to 0
-	jal	main				# call the program start function
-
+Lcall_main:
+	LA (t9, main)
+	jalr	t9				# call the program start function
+	nop
 	# fall through to the "exit" routine
 	move	a0,v0				# pass through the exit code
-	jal	exit				# call libc exit to run the G++
-						# destructors
+	LA (t9, exit)
+	jalr	t9				# call libc exit to run the G++
+	nop					# destructors
 	.end	init
 
  

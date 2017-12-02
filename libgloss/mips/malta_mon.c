@@ -121,7 +121,6 @@ void hardware_exception_handler(void* epc, register_t cause, void* bad_vaddr, re
 	do_malta_shutdown();
 }
 
-yamon_env_t* fenvp;
 static register_t bootloader_memsize = 0;
 static register_t env_memsize = 0;
 static register_t env_ememsize = 0;
@@ -131,12 +130,18 @@ extern long atol(const char *nptr);
 extern int strcmp(const char *s1, const char *s2);
 extern void *memcpy(void *dest, const void *src, size_t n);
 
+register_t yamon_argc;
+yamon_ptr* yamon_argv;
+yamon_env_t* yamon_envp;
+// YAMON passes 32 bit pointers so we need to convert argv
+
 void hardware_hazard_hook(register_t argc, yamon_ptr* argv, yamon_env_t* envp, register_t memsize) {
 	debug_printf("%s: argc=%ld, argv=%p, envp=%p, memsize=0x%lx\n", __func__, argc, argv, envp, memsize);
-	// argv and envp entries are 32-bit pointers
-	for (int i = 0; i < argc; ++i) {
-		debug_printf("argv[%d] = %s\n", i, yamon_ptr_to_real_ptr(char, argv[i]));
-	}
+	yamon_argc = argc;
+	yamon_argv = argv;
+	yamon_envp = envp;
+	bootloader_memsize = memsize;
+	// parse bootloader envp to find the real memsize
 	for (int i = 0; envp[i].name != 0 ; ++i) {
 		const char* name = yamon_ptr_to_real_ptr(char, envp[i].name);
 		const char* value = yamon_ptr_to_real_ptr(char, envp[i].value);
@@ -147,8 +152,6 @@ void hardware_hazard_hook(register_t argc, yamon_ptr* argv, yamon_env_t* envp, r
 			env_ememsize = atol(value);
 		}
 	}
-	fenvp = envp;
-	bootloader_memsize = memsize;
 	// The MAX() macro evaluate arguments twice...
 	total_memsize = MAX(bootloader_memsize, env_memsize);
 	total_memsize = MAX(env_ememsize, total_memsize);
@@ -158,6 +161,61 @@ void hardware_hazard_hook(register_t argc, yamon_ptr* argv, yamon_env_t* envp, r
 	crt_call_constructors();
 }
 
+
+extern char** environ;
+static char* fake_environ[] = { "FOO=BAR", NULL };
+#define ARGC_MAX 1
+char* converted_argv[ARGC_MAX]; // Or should we allocate it dynamically?
+register_t converted_argc;
+
+char** convert_argv(void) {
+	// argv and envp entries are 32-bit pointers
+	int real_argc = 0;
+	for (int i = 0; i < yamon_argc; ++i) {
+		char* real_ptr = yamon_ptr_to_real_ptr(char, yamon_argv[i]);
+		debug_printf("argv[%d] = %s\n", i, real_ptr);
+		// Skip empty arguments (usually the last one will be empty)
+		if (!real_ptr || real_ptr[0] == '\0') {
+			// last argument is usually empty, don't warn there
+			if (i != yamon_argc - 1) {
+				debug_printf("Skipping empty argument %d\n", i);
+			}
+			continue;
+		}
+		if (real_argc >= ARGC_MAX) {
+			error_printf("FATAL ERROR: too many arguments: %ld\n", yamon_argc);
+			do_malta_shutdown();
+		}
+		// this is a non-empty argument -> add it
+		converted_argv[real_argc] = real_ptr;
+		// debug_printf("Setting converted_argv[%d] = %s\n", real_argc, real_ptr);
+		real_argc++;
+	}
+	converted_argc = real_argc;
+	environ = &fake_environ[0];
+	return converted_argv;
+}
+
+asm(
+".text\n\t"
+".global hardware_argv_hook\n\t"
+".global convert_argv\n\t"
+".global converted_argc\n\t"
+".global environ\n\t"
+".ent hardware_argv_hook\n\t"
+"hardware_argv_hook:\n\t"
+"move $s0, $ra\n\t"  // save return address so so can call convert_argv
+"dla $t9, convert_argv\n\t"
+"jalr $t9\n\t"
+"nop\n\t" // delay slot
+"ld $a0, converted_argc\n\t"
+"move $a1, $v0\n\t"
+"ld $a2, environ\n\t"
+"move $ra, $s0\n\t"  // restore the original return address
+"jr $ra\n\t"
+"nop\n\t" // delay slot
+".end hardware_argv_hook"
+);
 
 // extern int errno;
 

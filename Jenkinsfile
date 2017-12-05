@@ -1,1 +1,1 @@
-cheribuildProject(target: "newlib-baremetal", cpu: "mips")
+cheribuildProject(target: "newlib-baremetal", cpu: "mips", extraArgs: '--install-prefix=/')

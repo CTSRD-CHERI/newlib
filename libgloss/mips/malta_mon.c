@@ -56,6 +56,7 @@ typedef long register_t;
 #include "yamon.h"
 
 #include <sys/param.h>
+#include <stdbool.h>
 #include <errno.h>
 extern int snprintf(char *__restrict, size_t, const char *__restrict, ...) __attribute__((__format__ (__printf__, 3, 4)));
 
@@ -84,6 +85,7 @@ static inline void yamon_print_count(const char* s, size_t count) {
 #define error_printf(msg, ...) malta_printf(ANSI_RED msg ANSI_RESET,##__VA_ARGS__)
 #define debug_printf(msg, ...) malta_printf(ANSI_BLUE msg ANSI_RESET,##__VA_ARGS__)
 #define debug_msg(msg) do { yamon_print(ANSI_BLUE); yamon_print(msg); yamon_print(ANSI_RESET); } while (0)
+#define die(msg, ...) do { error_printf(msg "\n", ##__VA_ARGS__); do_malta_shutdown(); } while (0)
 
 
 
@@ -129,6 +131,8 @@ static register_t total_memsize = 0;
 extern long atol(const char *nptr);
 extern int strcmp(const char *s1, const char *s2);
 extern void *memcpy(void *dest, const void *src, size_t n);
+extern void *memmove(void *dest, const void *src, size_t n);
+extern size_t strlen(const char *s);
 
 register_t yamon_argc;
 yamon_ptr* yamon_argv;
@@ -164,34 +168,57 @@ void hardware_hazard_hook(register_t argc, yamon_ptr* argv, yamon_env_t* envp, r
 
 extern char** environ;
 static char* fake_environ[] = { "FOO=BAR", NULL };
-#define ARGC_MAX 1
+#define ARGC_MAX 32
 char* converted_argv[ARGC_MAX]; // Or should we allocate it dynamically?
 register_t converted_argc;
 
-char** convert_argv(void) {
-	// argv and envp entries are 32-bit pointers
-	int real_argc = 0;
-	for (int i = 0; i < yamon_argc; ++i) {
-		char* real_ptr = yamon_ptr_to_real_ptr(char, yamon_argv[i]);
-		debug_printf("argv[%d] = %s\n", i, real_ptr);
-		// Skip empty arguments (usually the last one will be empty)
-		if (!real_ptr || real_ptr[0] == '\0') {
-			// last argument is usually empty, don't warn there
-			if (i != yamon_argc - 1) {
-				debug_printf("Skipping empty argument %d\n", i);
-			}
-			continue;
-		}
-		if (real_argc >= ARGC_MAX) {
-			error_printf("FATAL ERROR: too many arguments: %ld\n", yamon_argc);
-			do_malta_shutdown();
-		}
-		// this is a non-empty argument -> add it
-		converted_argv[real_argc] = real_ptr;
-		// debug_printf("Setting converted_argv[%d] = %s\n", real_argc, real_ptr);
-		real_argc++;
+
+static inline void add_argument(char* arg_start, char* pos) {
+	if (converted_argc >= ARGC_MAX) {
+		error_printf("FATAL ERROR: too many arguments! Current max is %ld\n", converted_argc);
+		do_malta_shutdown();
 	}
-	converted_argc = real_argc;
+	if (pos == arg_start) {
+		// the argument was empty -> don't add it
+		debug_printf("Skipping empty argument %ld\n", converted_argc);
+		return;
+	}
+	converted_argv[converted_argc] = arg_start;
+	debug_printf("adding argv[%ld] = %s\n", converted_argc, arg_start);
+	converted_argc++;
+}
+
+char** convert_argv(void) {
+	if (yamon_argc != 2) {
+		die("Got unexpected number of arguments: %ld", yamon_argc);
+	}
+	// first argument is the kernel binary
+	converted_argv[0] = yamon_ptr_to_real_ptr(char, yamon_argv[0]);
+	// second argument is whatever was passed in QEMU's -append option
+	// argv and envp entries are 32-bit pointers
+	converted_argc = 1;
+	bool escaped = false;
+	char* arg_start = yamon_ptr_to_real_ptr(char, yamon_argv[1]);
+	for (char* pos = arg_start;; ++pos) {
+		if (*pos == '\0') {
+			// end of arguments
+			add_argument(arg_start, pos);
+			break;
+		}
+		if (*pos == ' ' && !escaped) {
+			// split now
+			*pos = '\0';
+			add_argument(arg_start, pos);
+			// prepare for next arg
+			arg_start = pos + 1;
+		} else if (*pos == '\\' && !escaped) {
+			// remove the backslash and shift everything by one
+			memmove(pos, pos + 1, strlen(pos) + 1);
+			escaped = true;
+		} else {
+			escaped = false;
+		}
+	}
 	environ = &fake_environ[0];
 	return converted_argv;
 }

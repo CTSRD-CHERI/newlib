@@ -87,6 +87,7 @@ CFLAGS = -g
 GCC_LDFLAGS = `if [ -d ${objroot}/../gcc ] ; \
 	then echo -L${objroot}/../gcc ; fi`
 
+PROGRAMS = @programs_list@
 SCRIPTS = @script_list@
 BSP = @bsp_list@
 
@@ -208,11 +209,15 @@ distclean maintainer-clean realclean: clean
 .PHONY: install info install-info clean-info
 install:
 	mkdir -p $(DESTDIR)$(tooldir)/lib${MULTISUBDIR}
-	@for file in $(CRT0) $(PCRT0) $(BSP); do \
+	for file in $(CRT0) $(PCRT0) $(BSP); do \
 	  $(INSTALL_DATA) $${file} $(DESTDIR)$(tooldir)/lib${MULTISUBDIR}/$${file}; \
 	done
-	@for script in ${SCRIPTS}; do\
+	for script in ${SCRIPTS}; do\
 	  $(INSTALL_DATA) ${srcdir}/$${script}.ld $(DESTDIR)$(tooldir)/lib${MULTISUBDIR}/$${script}.ld; \
+	done
+	for program in ${PROGRAMS}; do\
+	  mkdir -p $(DESTDIR)$(tooldir)/bin; \
+	  $(INSTALL_PROGRAM) ${srcdir}/$${program} $(DESTDIR)$(tooldir)/bin/$${program}; \
 	done
 
 info:

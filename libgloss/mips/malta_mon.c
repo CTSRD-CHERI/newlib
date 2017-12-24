@@ -162,6 +162,8 @@ void hardware_hazard_hook(register_t argc, yamon_ptr* argv, yamon_env_t* envp, r
 	debug_printf("Installing exception handler\n");
 	memcpy((void*)(intptr_t)(int32_t)0x80000080, &__stub_exception_handler,
 	       &__stub_exception_handler_end - &__stub_exception_handler);
+	memcpy((void*)(intptr_t)(int32_t)0x80000180, &__stub_exception_handler,
+		   &__stub_exception_handler_end - &__stub_exception_handler);
 	crt_call_constructors();
 }
 

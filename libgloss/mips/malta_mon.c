@@ -299,9 +299,12 @@ struct s_mem
 extern char _ftext[]; /* Defined in qemu-malta.ld */
 extern char _end[];   /* Defined in qemu-malta.ld */
 
+// FIXME: this does not seem to work correctly, it will return an unmapped address...
 void get_mem_info (struct s_mem *mem) {
   mem->size = total_memsize - (_end - _ftext);
 }
+
+char __stack[64 * 1024] __attribute__((aligned(4096)));
 
 
 #if 0

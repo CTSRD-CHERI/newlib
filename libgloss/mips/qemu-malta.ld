@@ -10,7 +10,8 @@ __DYNAMIC  =  0;
  * Allocate the stack to be at the top of memory, since the stack
  * grows down
  */
-PROVIDE (__stack = 0);
+/* XXXAR: need to look at QEMU memory layout first, if I just add memsize to start of text it crashes
+PROVIDE (__stack = 0); */
 /* PROVIDE (__global = 0); */
 
 /*

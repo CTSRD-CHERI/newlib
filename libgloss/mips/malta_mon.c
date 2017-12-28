@@ -167,7 +167,8 @@ void hardware_hazard_hook(register_t argc, yamon_ptr* argv, yamon_env_t* envp, r
 	crt_call_constructors();
 }
 
-
+extern void _ftext; /* Defined in qemu-malta.ld */
+extern void _end;   /* Defined in qemu-malta.ld */
 extern char** environ;
 static char* fake_environ[] = { "FOO=BAR", NULL };
 #define ARGC_MAX 32
@@ -181,8 +182,9 @@ static inline void add_argument(char* arg_start, char* pos) {
 		do_malta_shutdown();
 	}
 	if (pos == arg_start) {
-		// the argument was empty -> don't add it
-		debug_printf("Skipping empty argument %ld\n", converted_argc);
+		// the argument was empty -> don't add it (arg 1 is usually empty)
+		if (converted_argc != 1)
+			debug_printf("Skipping empty argument %ld\n", converted_argc);
 		return;
 	}
 	converted_argv[converted_argc] = arg_start;
@@ -191,6 +193,13 @@ static inline void add_argument(char* arg_start, char* pos) {
 }
 
 char** convert_argv(void) {
+#if 0  // uncomment if the stack and heap are at wrong addresses again
+	char stack_var = 1;
+	char* heap_var = malloc(1);
+	debug_printf("Convert_argv sp=%p, stack_var=%p, heap_var=%p, _end=%p\n",
+                 __builtin_frame_address(0), &stack_var, heap_var, &_end);
+	free(heap_var);
+#endif
 	if (yamon_argc != 2) {
 		die("Got unexpected number of arguments: %ld", yamon_argc);
 	}
@@ -296,15 +305,32 @@ struct s_mem
   unsigned int dcsize;
 };
 
-extern char _ftext[]; /* Defined in qemu-malta.ld */
-extern char _end[];   /* Defined in qemu-malta.ld */
+#define	roundup(x, y)	((((x) % (y)) == 0) ? \
+			(x) : ((x) + ((y) - ((x) % (y)))))
 
-// FIXME: this does not seem to work correctly, it will return an unmapped address...
+register_t total_available_mem = -1;
+
 void get_mem_info (struct s_mem *mem) {
-  mem->size = total_memsize - (_end - _ftext);
+  // XXXAR: actually it seems like it adds the available mem to 0x8000000, so I don't need to subtract anything
+#if 0
+  register_t result = total_available_mem;
+  if (result < 0) {
+    register_t total = total_memsize;
+    register_t program_memory = &_end - &_ftext;  // FIXME: why is this greater than zero????
+    register_t used_mem = roundup(program_memory, 16 * 1024);
+    result = total - used_mem;
+    total_available_mem = result;
+    debug_printf("%s: total=%lx, program_mem=%lx, _end=%p, _ftext=%p\n", __func__, total,
+                 program_memory, &_end, &_ftext);
+  }
+  mem->size = result;
+#else
+  mem->size = total_memsize;
+#endif
 }
 
-char __stack[64 * 1024] __attribute__((aligned(4096)));
+// Can also use a hardcoded stack size (might be useful for CHERI to get bounds)
+// char __stack[64 * 1024] __attribute__((aligned(4096)));
 
 
 #if 0

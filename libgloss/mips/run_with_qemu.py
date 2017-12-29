@@ -9,6 +9,8 @@ import time
 import sys
 import shlex
 import shutil
+import select
+
 
 def default_addrline():
     val = os.getenv("ADDR2LINE")
@@ -24,7 +26,7 @@ def default_addrline():
 parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 parser.add_argument("--qemu", metavar="QEMU_PATH", help="Path to qemu", default=os.getenv("QEMU", "qemu-system-cheri128"))
 parser.add_argument("--addr2line", metavar="ADDR2LINE", help="Path to qemu", default=default_addrline())
-parser.add_argument("--timeout", metavar="SECONDS", help="Timeout for program run (0 = no timeout)", default=0, type=int)
+parser.add_argument("--timeout", metavar="SECONDS", help="Timeout for program run (0 = no timeout)", default=1800, type=int)
 parser.add_argument("--pretend", action="store_true", help="Only print the command that would be run.")
 parser.add_argument("CMD", help="The binary to excecute")
 parser.add_argument("ARGS", nargs=argparse.ZERO_OR_MORE, help="Arguments to pass to the binary")
@@ -43,7 +45,7 @@ command += [
     "-nographic",
     "-kernel", args.CMD
 ]
-#for program_arg in args.ARGS:
+# for program_arg in args.ARGS:
 #    command.extend(["-append", program_arg])
 if args.ARGS:
     command.append("-append")
@@ -54,21 +56,39 @@ print(" ".join(shlex.quote(s) for s in command))
 
 captured_stdout = []
 
-endtime = None
-if args.timeout:
-    endtime = time.time() + 60 * args.timeout
+assert args.timeout, "Must be set"
+assert args.timeout >= 0
+starttime = time.time()
+max_endtime = starttime + args.timeout
 
 with subprocess.Popen(command, stdout=subprocess.PIPE) as p:
     while True:
-        data = p.stdout.read(1024)
-        if data:
-            captured_stdout.append(data)
-            sys.stdout.buffer.write(data)
+        if args.timeout == 0:
+            select_timeout = None
+        else:
+            select_timeout = max_endtime - time.time()
+            # print("Remaining time: ", select_timeout)
+            if select_timeout <= 0:
+                # print("TIMEOUT!!!")
+                p.kill()
+                sys.exit("TIMEOUT after " + str(args.timeout) + " seconds!")
+
+        readfds, writefds, errfds = select.select([p.stdout], [], [p.stdout],
+                                                  select_timeout)
+        # print(readfds, writefds, errfds)
+        if readfds:
+            assert readfds[0] == p.stdout
+            data = p.stdout.read(1024)
+            # print("Read", len(data), "bytes")
+            if data:
+                captured_stdout.append(data)
+                sys.stdout.buffer.write(data)
         status = p.poll()
+        time.sleep(0.05)
         if status is not None:
             break
-        if endtime and time.time() > endtime:
-            sys.exit("TIMEOUT after " + str(args.timeout) + " minutes!")
+
+endtime = time.time()
 
 # TODO: only store the last few bytes of stdout
 end_of_stdout = b''.join(captured_stdout)[-1024:]  # only need to search the last few bytes for the exit message
@@ -96,7 +116,7 @@ if crash_message:
             print("Failed to run addr2line:", e)
 
 
-print("\n\nQEMU exit code: ", status)
+print("\n\nQEMU exit code ", status, "after", endtime - starttime, "seconds")
 print("Program exit code: ", guest_exit_code)
 if guest_exit_code is None:
     print("Could not determine exit code!")

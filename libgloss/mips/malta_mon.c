@@ -83,8 +83,13 @@ static inline void yamon_print_count(const char* s, size_t count) {
 
 #define warning_printf(msg, ...) malta_printf(ANSI_YELLOW msg ANSI_RESET,##__VA_ARGS__)
 #define error_printf(msg, ...) malta_printf(ANSI_RED msg ANSI_RESET,##__VA_ARGS__)
+#ifdef DEBUG_STARTUP
 #define debug_printf(msg, ...) malta_printf(ANSI_BLUE msg ANSI_RESET,##__VA_ARGS__)
 #define debug_msg(msg) do { yamon_print(ANSI_BLUE); yamon_print(msg); yamon_print(ANSI_RESET); } while (0)
+#else
+#define debug_printf(msg, ...) do { } while(0)
+#define debug_msg(msg) do { } while(0)
+#endif
 #define die(msg, ...) do { error_printf(msg "\n", ##__VA_ARGS__); do_malta_shutdown(); } while (0)
 
 
@@ -193,7 +198,7 @@ static inline void add_argument(char* arg_start, char* pos) {
 }
 
 char** convert_argv(void) {
-#if 0  // uncomment if the stack and heap are at wrong addresses again
+#ifdef DEBUG_STARTUP  // uncomment if the stack and heap are at wrong addresses again
 	char stack_var = 1;
 	char* heap_var = malloc(1);
 	debug_printf("Convert_argv sp=%p, stack_var=%p, heap_var=%p, _end=%p\n",

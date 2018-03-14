@@ -163,7 +163,17 @@ void hardware_hazard_hook(register_t argc, yamon_ptr* argv, yamon_env_t* envp, r
 	}
 	// The MAX() macro evaluate arguments twice...
 	total_memsize = MAX(bootloader_memsize, env_memsize);
+	// The malta FPGA maps up to 256MB of ram starting at physical address 0
+	// and the rest starts at 0x2000 0000 and 0x8000 0000 but between 256MB
+	// and 512MB there are various I/O devices which we shouldn't be messing
+	// with.
+	// TODO: handle more than 256MB of memory
+	uint64_t max_memsize = 256 * 1024 * 1024;
 	total_memsize = MAX(env_ememsize, total_memsize);
+	if (total_memsize > max_memsize) {
+		warning_printf("Memory above 256MB is not handled: total = %ld", total_memsize);
+		total_memsize = max_memsize;
+	}
 	debug_printf("Installing exception handler\n");
 	memcpy((void*)(intptr_t)(int32_t)0x80000080, &__stub_exception_handler,
 	       &__stub_exception_handler_end - &__stub_exception_handler);

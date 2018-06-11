@@ -4,7 +4,7 @@
  *  Each RTEMS BSP provides its own crt0 and linker script.  Unfortunately
  *  this means that crt0 and the linker script are not available as
  *  each tool is configured.  Without a crt0 and linker script, some
- *  targets do not successfully link "conftest.c" during the configuration 
+ *  targets do not successfully link "conftest.c" during the configuration
  *  process.  So this fake crt0.c provides all the symbols required to
  *  successfully link a program.  The resulting program will not run
  *  but this is enough to satisfy the autoconf macro AC_PROG_CC.
@@ -146,6 +146,7 @@ RTEMS_STUB(int, _fstat_r (struct _reent *r, int fd, struct stat *buf), { return 
 RTEMS_STUB(uid_t, geteuid (), { return -1; })
 RTEMS_STUB(gid_t, getgid (), { return -1; })
 RTEMS_STUB(gid_t, _getgid_r (struct _reent *r), { return -1; })
+struct _reent * __getreent (void) __attribute__((weak));
 RTEMS_STUB(struct _reent *, __getreent (void), { return 0; })
 RTEMS_STUB(pid_t, getpid (), { return -1; })
 RTEMS_STUB(pid_t, getppid (), { return -1; })

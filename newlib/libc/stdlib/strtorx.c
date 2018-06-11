@@ -37,7 +37,8 @@ THIS SOFTWARE.
 #include "gdtoa.h"
 #include "gd_qnan.h"
 
-#if defined (_HAVE_LONG_DOUBLE) && !defined (_LDBL_EQ_DBL)
+//#if defined (_HAVE_LONG_DOUBLE) && !defined (_LDBL_EQ_DBL)
+#if 0
 
 #undef _0
 #undef _1

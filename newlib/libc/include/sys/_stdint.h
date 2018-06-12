@@ -83,6 +83,11 @@ typedef __uintptr_t uintptr_t;
 #define _UINTPTR_T_DECLARED
 #endif
 
+#ifdef __CHERI_PURE_CAPABILITY__
+typedef __uintcap_t uintptr_t;
+typedef __intcap_t  intptr_t;
+#endif
+
 #ifdef __cplusplus
 }
 #endif

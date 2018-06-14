@@ -214,7 +214,7 @@ case "${host_cpu}" in
   mep)
 	machine_dir=mep
 	;;
-  mips*)
+  mips* | cheri*)
 	machine_dir=mips
 	;;
   mmix)
@@ -757,7 +757,7 @@ newlib_cflags="${newlib_cflags} -DCLOCK_PROVIDED -DMALLOC_PROVIDED -DEXIT_PROVID
 	default_newlib_io_long_long="yes"
 	newlib_cflags="${newlib_cflags} -DMISSING_SYSCALL_NAMES"
 	;;
-  mips*-*-elf*)
+  mips*-*-elf* | cheri-*-elf*)
 	default_newlib_io_long_long="yes"
 	newlib_cflags="${newlib_cflags} -DMISSING_SYSCALL_NAMES"
 	;;

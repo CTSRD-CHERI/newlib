@@ -272,7 +272,7 @@ case $basic_machine in
 	| maxq | mb | microblaze | microblazeel | mcore | mep | metag \
 	| mips | mipsbe | mipseb | mipsel | mipsle \
 	| mips16 \
-	| mips64 | mips64el \
+	| mips64 | mips64el | cheri \
 	| mips64octeon | mips64octeonel \
 	| mips64orion | mips64orionel \
 	| mips64r5900 | mips64r5900el \
@@ -398,7 +398,7 @@ case $basic_machine in
 	| microblaze-* | microblazeel-* \
 	| mips-* | mipsbe-* | mipseb-* | mipsel-* | mipsle-* \
 	| mips16-* \
-	| mips64-* | mips64el-* \
+	| mips64-* | mips64el-* | cheri-* \
 	| mips64octeon-* | mips64octeonel-* \
 	| mips64orion-* | mips64orionel-* \
 	| mips64r5900-* | mips64r5900el-* \

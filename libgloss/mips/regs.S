@@ -91,6 +91,7 @@
 
 /* Standard Status Register bitmasks: */
 #define SR_CU1		0x20000000	/* Mark CP1 as usable */
+#define SR_CU2		0x40000000	/* Mark CP1 as usable */
 #define SR_FR		0x04000000	/* Enable MIPS III FP registers */
 #define SR_BEV		0x00400000	/* Controls location of exception vectors */
 #define SR_PE		0x00100000	/* Mark soft reset (clear parity error) */

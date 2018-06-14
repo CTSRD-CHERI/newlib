@@ -28,6 +28,7 @@ parser.add_argument("--qemu", metavar="QEMU_PATH", help="Path to qemu", default=
 parser.add_argument("--addr2line", metavar="ADDR2LINE", help="Path to qemu", default=default_addrline())
 parser.add_argument("--timeout", metavar="SECONDS", help="Timeout for program run (0 = no timeout)", default=1800, type=int)
 parser.add_argument("--pretend", action="store_true", help="Only print the command that would be run.")
+parser.add_argument("--gdbstub", action="store_true", help="Wait for GDB to attach (disables timeout)")
 parser.add_argument("CMD", help="The binary to excecute")
 parser.add_argument("ARGS", nargs=argparse.ZERO_OR_MORE, help="Arguments to pass to the binary")
 args = parser.parse_args()
@@ -51,8 +52,10 @@ if args.ARGS:
     command.append("-append")
     # QEMU wan't all arguments as a single parameter -> make it space separated with backslash escapes
     command.append(" ".join(x.replace(" ", "\\ ") for x in args.ARGS))
+if args.gdbstub:
+    command.append("-s")
+    command.append("-S")
 print(" ".join(shlex.quote(s) for s in command))
-
 
 captured_stdout = []
 
@@ -63,7 +66,7 @@ max_endtime = starttime + args.timeout
 
 with subprocess.Popen(command, stdout=subprocess.PIPE) as p:
     while True:
-        if args.timeout == 0:
+        if args.timeout == 0 or args.gdbstub:
             select_timeout = None
         else:
             select_timeout = max_endtime - time.time()

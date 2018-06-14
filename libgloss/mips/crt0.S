@@ -39,7 +39,15 @@
    .sbss section under embedded-pic, or before we've set up gp.  */
 #ifdef __CHERI_PURE_CAPABILITY__
 .option pic0 /* Force non-PIC expansion of dla */
+#define DO_JALR(reg) \
+cgetpccsetoffset $c12, reg; \
+cjalr	$c12, $c17;   \
+cgetaddr reg, $c17;
+#else
+#define DO_JALR(reg) jalr reg; nop
 #endif
+
+
 #if 0
 #define CAPREG_TMP $c27
 .set cheri_sysregs_accessible
@@ -173,14 +181,21 @@ _start:
 #endif
 
 2:
+#ifdef __CHERI_PURE_CAPABILITY__
+	or	v0,v0,SR_CU2	/* Enable CP2 as well*/
+#endif
 	/* Set C0_SR,  */
 	mtc0	v0,C0_SR
 	nop
-
+        /* Save the bootloader arguments before stack startup */
+        move    s0, a0
+        move    s1, a1
+        move    s2, a2
+        move    s3, a3
 	/* Avoid hazard from C0_SR changes.  */
 	LA	(t9, hardware_hazard_hook)
 	beq	t9,zero,2f
-	jalr	t9
+	DO_JALR(t9)
 2:
 
 
@@ -215,6 +230,14 @@ zerobss:
 zerobss_done:
 	LA (t0, __lstack)			# make a small stack so we
 	addiu	sp, t0, STARTUP_STACK_SIZE	# can run some C code
+#ifdef __CHERI_PURE_CAPABILITY__
+	/* Setup CHERI registers */
+        /* stack pointer */
+	cgetdefault $c11
+	csetoffset $c11, $c11, sp
+        LA (t9, do_cheri_setup)		# initialize globals for CHERI
+	DO_JALR(t9)
+#endif
 	LA (a0, __memsize)			# get the usable memory size
 	jal	get_mem_info
 
@@ -250,13 +273,18 @@ zerobss_done:
 	.globl	exit #.text
 	.ent	init
 init:
+        /* restore bootloader arguments post stack startup */
+        move    a0, s0
+        move    a1, s1
+        move    a2, s2
+        move    a3, s3
 	LA (t9, hardware_init_hook)		# init the hardware if needed
 	beq	t9,zero,6f
-	jalr	t9
+	DO_JALR(t9)
 6:
 	LA (t9, software_init_hook)		# init the hardware if needed
 	beq	t9,zero,7f
-	jalr	t9
+	DO_JALR(t9)
 7:
 	LA (a0, _fini)
 	beq	a0,zero,8f
@@ -274,14 +302,14 @@ init:
 
 	LA (t9, _init)				# run global constructors
 	beq	t9,zero,9f
-	jalr	t9
+	DO_JALR(t9)
 9:
 	# allow the hardware to setup argc, argv from the bootloader
 	.weak hardware_argv_hook
 	LA (t9, hardware_argv_hook)
 	beq	t9,zero,Lnull_arguments
 	nop
-	jalr	t9
+	DO_JALR(t9)
 	nop
 	b Lcall_main
 	nop
@@ -299,12 +327,12 @@ Lnull_arguments:
 	move	a0,zero				# set argc to 0
 Lcall_main:
 	LA (t9, main)
-	jalr	t9				# call the program start function
+	DO_JALR(t9)				# call the program start function
 	nop
 	# fall through to the "exit" routine
 	move	a0,v0				# pass through the exit code
 	LA (t9, exit)
-	jalr	t9				# call libc exit to run the G++
+	DO_JALR(t9)				# call libc exit to run the G++
 	nop					# destructors
 	.end	init
 
@@ -340,11 +368,11 @@ _exit:
 #endif
 #ifdef GCRT0
 	LA (t9, _mcleanup)
-	jalr	t9
+	DO_JALR(t9)
 #endif
 	LA (t9, hardware_exit_hook)
 	beq	t9,zero,1f
-	jalr	t9
+	DO_JALR(t9)
 1:
 
 	# break instruction can cope with 0xfffff, but GAS limits the range:

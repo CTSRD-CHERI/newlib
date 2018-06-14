@@ -59,6 +59,8 @@
 #define YAMON_FUNC(ofs)		 \
 	ADDR_TO_FUNCPTR((*(int32_t *)ADDR_TO_DATAPTR(MIPS_PHYS_TO_KSEG0(ofs))))
 #else
+#define ADDR_TO_DATAPTR(addr) ((void*)(addr))
+#define ADDR_TO_FUNCPTR(addr) ((void*)(addr))
 #define YAMON_FUNC(ofs)		((long)(*(int32_t *)(MIPS_PHYS_TO_KSEG0(ofs))))
 #endif
 
@@ -85,7 +87,11 @@ typedef int (*t_yamon_syscon_read)(t_yamon_syscon_id id, void *param,
 
 // the yamon pointers need to be sign extended!
 typedef int32_t yamon_ptr;
+#ifdef __CHERI_PURE_CAPABILITY__
+#define yamon_ptr_to_real_ptr(type, ptr) ((type*)ADDR_TO_DATAPTR((int64_t)ptr))
+#else
 #define yamon_ptr_to_real_ptr(type, ptr) ((type*)(intptr_t)ptr)
+#endif
 
 typedef struct {
 	yamon_ptr name; // actually a 32bit char*

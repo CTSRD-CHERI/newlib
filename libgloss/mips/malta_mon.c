@@ -35,6 +35,7 @@ typedef __INT32_TYPE__ int32_t;
 typedef __INT64_TYPE__ int64_t;
 typedef __SIZE_TYPE__ size_t;
 typedef long register_t;
+typedef __SIZE_TYPE__ vaddr_t;
 
 /* FreeBSD sys/mips/include/cpuregs.h */
 #define	MIPS_KUSEG_START		0x00000000
@@ -144,7 +145,9 @@ yamon_ptr* yamon_argv;
 yamon_env_t* yamon_envp;
 // YAMON passes 32 bit pointers so we need to convert argv
 
-void hardware_hazard_hook(register_t argc, yamon_ptr* argv, yamon_env_t* envp, register_t memsize) {
+void hardware_init_hook(register_t argc, vaddr_t argv_addr, vaddr_t envp_addr, register_t memsize) {
+        yamon_ptr* argv = ADDR_TO_DATAPTR(argv_addr);
+        yamon_env_t* envp = ADDR_TO_DATAPTR(envp_addr);
 	debug_printf("%s: argc=%ld, argv=%p, envp=%p, memsize=0x%lx\n", __func__, argc, argv, envp, memsize);
 	yamon_argc = argc;
 	yamon_argv = argv;
@@ -326,7 +329,8 @@ struct s_mem
 
 register_t total_available_mem = -1;
 
-void get_mem_info (struct s_mem *mem) {
+void get_mem_info (/*struct s_mem *mem */vaddr_t smem_addr) {
+    struct s_mem *mem = ADDR_TO_DATAPTR(smem_addr);
   // XXXAR: actually it seems like it adds the available mem to 0x8000000, so I don't need to subtract anything
 #if 0
   register_t result = total_available_mem;

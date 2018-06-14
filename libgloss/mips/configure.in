@@ -77,6 +77,13 @@ case "${target}" in
 	script_list="idt pmon ddb ddb-kseg0 lsi idtecoff nullmon"
 	bsp_list="libidt.a libpmon.a liblsi.a libnullmon.a"
 	;;
+  mips64*-qemu-elf*cheri* | cheri-qemu-elf*cheri*)
+	part_specific_obj="vr5xxx.o cheri_init_globals.o"
+	part_specific_defines="-DR5000 -DQEMU_MALTA=1"
+	script_list="qemu-malta"
+	programs_list="run_with_qemu.py"
+	bsp_list="libmalta_mon.a libnullmon.a"
+	;;
   mips64*-qemu-elf* | cheri-qemu-elf*)
 	part_specific_obj="vr5xxx.o"
 	part_specific_defines="-DR5000 -DQEMU_MALTA=1"

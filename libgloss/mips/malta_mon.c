@@ -251,6 +251,7 @@ char** convert_argv(void) {
 
 asm(
 ".text\n\t"
+".option pic0\n\t"  // Force non-PIC expansion of dla
 ".global hardware_argv_hook\n\t"
 ".global convert_argv\n\t"
 ".global converted_argc\n\t"

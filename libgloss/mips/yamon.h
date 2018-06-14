@@ -53,7 +53,14 @@
 #define YAMON_GETCHAR_OFS	(YAMON_FUNCTION_BASE + 0x50)
 #define YAMON_SYSCON_READ_OFS	(YAMON_FUNCTION_BASE + 0x54)
 
+#ifdef __CHERI_PURE_CAPABILITY__
+#define ADDR_TO_FUNCPTR(addr) __builtin_cheri_offset_set(__builtin_cheri_program_counter_get(), addr)
+#define ADDR_TO_DATAPTR(addr) __builtin_cheri_offset_set(__builtin_cheri_global_data_get(), addr)
+#define YAMON_FUNC(ofs)		 \
+	ADDR_TO_FUNCPTR((*(int32_t *)ADDR_TO_DATAPTR(MIPS_PHYS_TO_KSEG0(ofs))))
+#else
 #define YAMON_FUNC(ofs)		((long)(*(int32_t *)(MIPS_PHYS_TO_KSEG0(ofs))))
+#endif
 
 typedef void (*t_yamon_print_count)(uint32_t port, const char *s, uint32_t count);
 #define YAMON_PRINT_COUNT(s, count) \

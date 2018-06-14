@@ -37,6 +37,20 @@
 
 /* This is for referencing addresses that are not in the .sdata or
    .sbss section under embedded-pic, or before we've set up gp.  */
+#ifdef __CHERI_PURE_CAPABILITY__
+.option pic0 /* Force non-PIC expansion of dla */
+#endif
+#if 0
+#define CAPREG_TMP $c27
+.set cheri_sysregs_accessible
+# define PIC_LOAD_CODE_PTR(capreg, gpr, l)		\
+	lui		gpr, %pcrel_hi(l - 8);		\
+	daddiu		gpr, gpr, %pcrel_lo(l - 4);	\
+	cgetpcc		capreg;				\
+	cincoffset	capreg, capreg, gpr;
+# define LA(t,x) PIC_LOAD_CODE_PTR(CAPREG_TMP, t,x)
+#endif
+
 #ifdef __mips_embedded_pic
 # ifdef __mips64
 #  define LA(t,x) dla t,x-PICBASE ; daddu t,s0,t
@@ -355,7 +369,7 @@ __stub_exception_handler:
 	dmfc0 a2, C0_BADVADDR
 	dmfc0 a3, C0_SR
 	dmfc0 $8, C0_COUNT
-	PTR_LA t9, hardware_exception_handler
+	LA(t9, hardware_exception_handler)
 	jalr t9
 	nop
 	eret

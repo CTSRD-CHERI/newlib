@@ -31,11 +31,17 @@
 typedef unsigned long long ctor_dtor_entry;
 typedef void (*mips_function_ptr)();
 
+#ifdef __CHERI_PURE_CAPABILITY__
+#define CTOR_DTOR_TO_FUNCPTR(addr) ((mips_function_ptr)__builtin_cheri_offset_set(__builtin_cheri_program_counter_get(), addr))
+#else
+#define CTOR_DTOR_TO_FUNCPTR(addr) ((mips_function_ptr)(addr))
+#endif
+
 
 static void call_ctors_dtors(ctor_dtor_entry* start, ctor_dtor_entry* end) {
 	for (ctor_dtor_entry* entry = start; entry < end; entry++) {
 		if (*entry != (ctor_dtor_entry)-1) {
-			mips_function_ptr func = (mips_function_ptr)*entry;
+			mips_function_ptr func = CTOR_DTOR_TO_FUNCPTR(*entry);
 			debug_printf("Calling ctor/dtor %p\n", (void*)func);
 			func();
 		}

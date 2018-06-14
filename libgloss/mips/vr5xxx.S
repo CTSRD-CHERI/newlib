@@ -39,6 +39,10 @@
 	.set nomips16
 #endif
 
+#ifdef __CHERI_PURE_CAPABILITY__
+.option pic0
+#endif
+
 #include "regs.S"
 
 	.text

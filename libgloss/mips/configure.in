@@ -84,6 +84,13 @@ case "${target}" in
 	programs_list="run_with_qemu.py"
 	bsp_list="libmalta_mon.a libnullmon.a"
 	;;
+  cheri-qemu-elf)
+	part_specific_obj="vr5xxx.o"
+	part_specific_defines="-DR5000 -DQEMU_MALTA=1"
+	script_list="qemu-malta"
+	programs_list="run_with_qemu.py"
+	bsp_list="libmalta_mon.a libnullmon.a"
+	;;
   mips64vr-*-* | mips64vrel-*-*)
 	part_specific_obj="vr5xxx.o cma101.o"
 	script_list="ddb ddb-kseg0 nullmon"

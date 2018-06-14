@@ -946,6 +946,9 @@ case "${target}" in
   mips*-*-*)
     libgloss_dir=mips
     ;;
+  cheri*-*-*)
+    libgloss_dir=mips
+    ;;
   powerpc*-*-*)
     libgloss_dir=rs6000
     ;;

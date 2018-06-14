@@ -75,7 +75,12 @@ case "${target}" in
   sh*-*-pe | mips*-*-pe | *arm*-wince-pe)
 	AC_CONFIG_SUBDIRS([wince])
 	;;
-  mips*-*-*)
+  mips*-qemu-elf* | cheri*-qemu-elf*)
+	AC_CONFIG_SUBDIRS([mips])
+	config_testsuite=false
+	config_libnosys=false
+	;;
+  mips*-*-* | cheri*-*-*)
 	AC_CONFIG_SUBDIRS([mips])
 	;;
   riscv*-*-*)

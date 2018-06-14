@@ -2453,9 +2453,13 @@ case "${target}" in
 	subdirs="$subdirs wince"
 
 	;;
-  mips*-*-*)
+  mips*-qemu-elf* | cheri*-qemu-elf*)
 	subdirs="$subdirs mips"
-
+	config_testsuite=false
+	config_libnosys=false
+	;;
+  mips*-*-* | cheri*-*-*)
+	subdirs="$subdirs mips"
 	;;
   riscv*-*-*)
 	subdirs="$subdirs riscv"
@@ -2591,7 +2595,9 @@ esac
 
 if test "${config_libnosys}" = "true"; then
   subdirs="$subdirs libnosys"
-
+  # $as_echo "$as_me:${as_lineno-$LINENO}: BUILDING WITH LIBNOSYS" >&5
+  $as_echo "$as_me:${as_lineno-$LINENO}: BUILDING ${target} WITH LIBNOSYS, this is wrong!" >&6
+  exit 1
 fi
 
 DEPDIR="${am__leading_dot}deps"

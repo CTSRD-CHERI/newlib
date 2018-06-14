@@ -20,7 +20,7 @@ sbrk (nbytes)
     unsigned int icsize;
     unsigned int dcsize;
   } mem;
-  unsigned int avail = 0;
+  size_t avail = 0;
 
   /* The sizeof (s_mem.size) must be 4 bytes.  The compiler should be
      able to eliminate this check */
@@ -32,7 +32,7 @@ sbrk (nbytes)
      of memory, and not the address of the (last byte + 1) */
 
   if (((size_t)heap_ptr >= heap_start) && ((size_t)heap_ptr < (heap_start + mem.size))) {
-    avail = (heap_start + mem.size) - (size_t)heap_ptr;
+    avail = (size_t)(heap_start + mem.size) - (size_t)heap_ptr;
     base = heap_ptr;
   } /* else will fail since "nbytes" will be greater than zeroed "avail" value */
 

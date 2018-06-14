@@ -64,6 +64,8 @@
 #define _INTPTR_EQ_INT
 #elif (__INTPTR_TYPE__ == 1 || __INTPTR_TYPE__ == 3)
 #define _INTPTR_EQ_SHORT
+#elif defined(__CHERI_PURE_CAPABILITY__)
+/* intptr_t is not equal to any int type */
 #else
 #error "Unable to determine type definition of intptr_t"
 #endif

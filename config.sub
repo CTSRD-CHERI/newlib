@@ -118,7 +118,7 @@ case $maybe_os in
   linux-musl* | linux-uclibc* | uclinux-uclibc* | uclinux-gnu* | kfreebsd*-gnu* | \
   knetbsd*-gnu* | netbsd*-gnu* | netbsd*-eabi* | \
   kopensolaris*-gnu* | \
-  storm-chaos* | os2-emx* | rtmk-nova*)
+  storm-chaos* | os2-emx* | rtmk-nova* | elf-cheri*)
     os=-$maybe_os
     basic_machine=`echo $1 | sed 's/^\(.*\)-\([^-]*-[^-]*\)$/\1/'`
     ;;
@@ -133,6 +133,10 @@ case $maybe_os in
     else os=; fi
     ;;
 esac
+
+echo basic_machine=$basic_machine >&2
+echo maybe_os=$maybe_os >&2
+echo os=$os >&2
 
 ### Let's recognize common machines as not being operating systems so
 ### that things like config.sub decstation-3100 work.  We also

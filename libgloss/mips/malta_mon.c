@@ -76,6 +76,15 @@ static inline void yamon_print_count(const char* s, size_t count) {
 #define ANSI_YELLOW "\x1B[33m"
 #define ANSI_BLUE "\x1B[34m"
 
+#define	CHERI_START_TRACE	do {					\
+	__asm__ __volatile__("li $0, 0xbeef");				\
+} while(0)
+#define	CHERI_STOP_TRACE	do {					\
+	__asm__ __volatile__("li $0, 0xdead");				\
+} while(0)
+
+
+
 #define malta_printf(msg, ...) do { \
 	char _debug_buf[512];		\
 	snprintf(_debug_buf, sizeof(_debug_buf), msg,##__VA_ARGS__); \

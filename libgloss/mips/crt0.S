@@ -235,8 +235,12 @@ zerobss_done:
         /* stack pointer */
 	cgetdefault $c11
 	csetoffset $c11, $c11, sp
+#define STOP_TRACE li $0, 0xdead
+#define START_TRACE li $0, 0xbeef
+        STOP_TRACE
         LA (t9, do_cheri_setup)		# initialize globals for CHERI
         DO_JALR(t9)
+        START_TRACE
 #endif
 	LA (a0, __memsize)			# get the usable memory size
         LA (t9, get_mem_info)

@@ -236,10 +236,11 @@ zerobss_done:
 	cgetdefault $c11
 	csetoffset $c11, $c11, sp
         LA (t9, do_cheri_setup)		# initialize globals for CHERI
-	DO_JALR(t9)
+        DO_JALR(t9)
 #endif
 	LA (a0, __memsize)			# get the usable memory size
-	jal	get_mem_info
+        LA (t9, get_mem_info)
+        DO_JALR(t9)
 
 	/* setup the stack pointer */
 	LA (t0, __stack)			# is __stack set ?

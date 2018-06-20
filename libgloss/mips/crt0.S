@@ -42,7 +42,7 @@
 #define DO_JALR(reg) \
 cgetpccsetoffset $c12, reg; \
 cjalr	$c12, $c17;   \
-cgetaddr reg, $c17;
+cgetaddr ra, $c17;
 #else
 #define DO_JALR(reg) jalr reg; nop
 #endif
@@ -188,10 +188,27 @@ _start:
 	mtc0	v0,C0_SR
 	nop
         /* Save the bootloader arguments before stack startup */
-        move    s0, a0
-        move    s1, a1
-        move    s2, a2
-        move    s3, a3
+        move	s0, a0
+        move	s1, a1
+        move	s2, a2
+        move	s3, a3
+#define STOP_TRACE li $0, 0xdead
+#define START_TRACE li $0, 0xbeef
+	# Setup initial trap handler (assume memcpy doesn't need a stack)
+	dmtc0	zero, $4, 2  # Store initial trap count of zero
+	LA	(a0, 0xffffffff80000180)
+        LA	(a1, __stub_exception_handler)
+        LA	(a2, __stub_exception_handler_end - __stub_exception_handler)
+#ifdef __CHERI_PURE_CAPABILITY__
+        # Change args for CHERI purecap
+        cgetdefault	$c1
+        cincoffset	$c3, $c1, a0
+        cincoffset	$c4, $c1, a1
+        move	a0, a2
+#endif
+	LA	(t9, memcpy)
+	DO_JALR(t9)
+
 	/* Avoid hazard from C0_SR changes.  */
 	LA	(t9, hardware_hazard_hook)
 	beq	t9,zero,2f
@@ -235,12 +252,9 @@ zerobss_done:
         /* stack pointer */
 	cgetdefault $c11
 	csetoffset $c11, $c11, sp
-#define STOP_TRACE li $0, 0xdead
-#define START_TRACE li $0, 0xbeef
-        STOP_TRACE
+
         LA (t9, do_cheri_setup)		# initialize globals for CHERI
         DO_JALR(t9)
-        START_TRACE
 #endif
 	LA (a0, __memsize)			# get the usable memory size
         LA (t9, get_mem_info)
@@ -397,15 +411,51 @@ _exit:
 .global __stub_exception_handler
 __stub_exception_handler:
 	# TODO: save the registers that we are clobbering
+	START_TRACE
+	# get trap count
+	dmfc0	k0, $4, 2
+	bnez	k0, .L.die
+	daddiu	k0, k0, 1
+
+	# In case we haven't had a trap yet try to call the C handler
+	dmtc0	k0, $4, 2    # Store new trap count
+	# fetch the arguments to hardware_exception_handler
 	dmfc0 a0, C0_EPC
 	dmfc0 a1, C0_CAUSE
 	dmfc0 a2, C0_BADVADDR
 	dmfc0 a3, C0_SR
 	dmfc0 $8, C0_COUNT
 	LA(t9, hardware_exception_handler)
-	jalr t9
+	DO_JALR(t9)
+        # TODO: actually handle exceptions? ... eret
 	nop
-	eret
+.L.die:
+#ifdef __CHERI__
+	li	$2, 1
+	# Dump CHERI regs:
+	mtc2	$2, $0, 6
+	nop
+	nop
+#endif
+	# Dump MIPS regs
+	mtc0	$2, $26
+	nop
+	nop
+	nop
+.L.try_shutdown:
+	# TERMINATE SIMULATION:
+	mtc0	$2, $23
+	nop
+	nop
+	# Cause a qemu_system_shutdown:
+	# Load softres register address
+	dli	$2, 0xffffffffbf000500
+	dli	$3, 0x44  # shutdown in QEMU
+	sw	$3, 0($2)
+	# keep looping if we didn't die
+	b	.L.try_shutdown
+	nop
 .end __stub_exception_handler
 .global __stub_exception_handler_end
 __stub_exception_handler_end:
+    nop

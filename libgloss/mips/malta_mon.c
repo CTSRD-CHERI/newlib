@@ -130,8 +130,8 @@ void hardware_exit_hook(register_t status) {
 extern char __stub_exception_handler;
 extern char __stub_exception_handler_end;
 
-void hardware_exception_handler(void* epc, register_t cause, void* bad_vaddr, register_t status, register_t count) {
-	error_printf("Exception: Cause=%lx EPC=%p BadVaddr=%p, Status=%lx, count=%lx\n",
+void hardware_exception_handler(vaddr_t epc, register_t cause, vaddr_t bad_vaddr, register_t status, register_t count) {
+	error_printf("Exception: Cause=%lx EPC=%lx BadVaddr=%lx, Status=%lx, count=%lx\n",
 		cause, epc, bad_vaddr, status, count);
 	error_printf("Cannot continue, ABORTING!\n");
 	// Don't call destructors if we've crashed, just shutdown

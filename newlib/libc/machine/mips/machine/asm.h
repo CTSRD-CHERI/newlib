@@ -370,15 +370,17 @@ name:
 #define ENV_JALR(reg) \
     cgetpccsetoffset $c12, reg;  \
     cjalr            $c12, $c17; \
-    cgetaddr         reg, $c17;
+    cgetaddr         ra, $c17;
 
 /* Do CHERI return in purecap mode */
 #define ENV_RETURN       \
     cjr            $cra; \
     nop
+#define ENV_RETURN_BDELAY_NOFILL	cjr $cra;
 #else
 #define ENV_JALR(reg) jalr reg; nop;
 #define ENV_RETURN    jr ra; nop;
+#define ENV_RETURN_BDELAY_NOFILL	jr ra;
 #endif
 
 #endif

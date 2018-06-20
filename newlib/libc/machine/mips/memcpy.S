@@ -289,6 +289,12 @@ LEAF(MEMCPY_NAME)
 #endif
 	.set	nomips16
 	.set	noreorder
+#ifdef __CHERI_PURE_CAPABILITY__
+	# Quick HACK to get this to "work" with purecap ABI
+	move     a2, a0 # size: CHERI int arg 1 -> MIPS arg 3
+	cgetaddr a1, $c4  # src: CHERI cap arg 2 -> MIPS arg 2
+	cgetaddr a0, $c3  # dest: CHERI cap arg 1 -> MIPS arg 1
+#endif
 /*
  * Below we handle the case where memcpy is called with overlapping src and dst.
  * Although memcpy is not required to handle this case, some parts of Android
@@ -302,8 +308,7 @@ LEAF(MEMCPY_NAME)
 	sltu	t2,t0,a2
 	beq	t2,zero,L(memcpy)
 	la	t9,memmove
-	jr	t9
-	 nop
+	ENV_JALR(t9)
 L(memcpy):
 #endif
 /*
@@ -817,8 +822,7 @@ L(ua_smallCopy_loop):
 	bne	a0,a3,L(ua_smallCopy_loop)
 	sb	v1,-1(a0)
 
-	j	ra
-	nop
+	ENV_RETURN
 
 #else /* R6_CODE */
 

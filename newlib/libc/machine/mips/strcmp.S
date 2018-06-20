@@ -90,7 +90,11 @@ LEAF(STRCMP_NAME)
 #endif
 	.set	nomips16
 	.set	noreorder
-
+#ifdef __CHERI_PURE_CAPABILITY__
+	# Quick HACK to get this to "work" with purecap ABI
+	cgetaddr a0, $c3
+	cgetaddr a1, $c4
+#endif
 	or	t0, a0, a1
 	andi	t0,0x3
 	bne	t0, zero, L(byteloop)
@@ -132,7 +136,7 @@ L(wordloop):
 	PTR_ADDIU a1, a1, 32
 
 L(returnzero):
-	j	ra
+	ENV_RETURN_BDELAY_NOFILL
 	move	v0, zero
 
 L(worddiff):
@@ -156,7 +160,7 @@ L(worddiff):
 	rotrv	v1, v1, t1
 	and	v0, v0, 0xff
 	and	v1, v1, 0xff
-	j	ra
+	ENV_RETURN_BDELAY_NOFILL
 	subu	v0, v0, v1
 #else /* USE_CLZ */
 # if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
@@ -206,10 +210,10 @@ L(worddiff):
 # endif /* __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__ */
 
 L(wexit89):
-	j	ra
+	ENV_RETURN_BDELAY_NOFILL
 	subu	v0, t8, t9
 L(wexit01):
-	j	ra
+	ENV_RETURN_BDELAY_NOFILL
 	subu	v0, t0, t1
 #endif /* USE_CLZ */
 
@@ -244,10 +248,10 @@ L(byteloop):
 	PTR_ADDIU a1, a1, 8
 
 L(bexit01):
-	j	ra
+	ENV_RETURN_BDELAY_NOFILL
 	subu	v0, v0, v1
 L(bexit89):
-	j	ra
+	ENV_RETURN_BDELAY_NOFILL
 	subu	v0, t8, t9
 
 	.set	at

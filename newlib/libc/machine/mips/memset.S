@@ -217,6 +217,12 @@ LEAF(MEMSET_NAME)
 
 	.set	nomips16
 	.set	noreorder
+#ifdef __CHERI_PURE_CAPABILITY__
+	# Quick HACK to get this to "work" with purecap ABI
+	move     a2, a1 # n: CHERI int arg 2 -> MIPS arg 3
+	move     a1, a0  # c: CHERI int arg 1 -> MIPS arg 2
+	cgetaddr a0, $c3  # s: CHERI cap arg 1 -> MIPS arg 1
+#endif
 /* If the size is less than 2*NSIZE (8 or 16), go to L(lastb).  Regardless of
    size, copy dst pointer to v0 for the return value.  */
 	slti	t2,a2,(2 * NSIZE)

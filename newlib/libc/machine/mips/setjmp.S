@@ -124,6 +124,9 @@
 	.ent	setjmp
 setjmp:
 	.frame	$sp,0,$31
+#ifdef __CHERI_PURE_CAPABILITY__
+	teq $zero, $zero # This cannot work without major changes
+#endif
 
 #define GPR_OFFSET(REG, INDEX) STORE_GPR REG,GPOFF(INDEX)($4)
 #define FPR_OFFSET(REG, INDEX) STORE_FPR REG,FPOFF(INDEX)($4)

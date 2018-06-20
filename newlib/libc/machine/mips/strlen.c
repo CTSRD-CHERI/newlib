@@ -31,6 +31,27 @@ strlen (const char *str)
 
   return str - start - 1;
 }
+#elif defined(__CHERI_PURE_CAPABILITY__)
+__asm__(""			/* 64-bit MIPS targets */
+	"	.text\n"
+	"	.set	noreorder\n"
+	"	.set	nomacro\n"
+	"	.globl	strlen\n"
+	"	.ent	strlen\n"
+	"strlen:\n"
+	"	cmove	$c4,$c3\n"
+	"\n"
+	"1:	clbu	$3,$zero, 0($c4)\n"
+	"	bnez	$3,1b\n"
+	"	cincoffset	$c4,$c4,1\n"
+	"\n"
+	"	csub	$2,$c4,$c3\n"
+	"	cjr	$cra\n"
+	"	daddiu	$2, $2, -1\n"
+	"	.end	strlen\n"
+	"	.set	macro\n"
+	"	.set	reorder\n");
+
 #elif defined(__mips64)
 __asm__(""			/* 64-bit MIPS targets */
 	"	.text\n"
@@ -68,11 +89,7 @@ __asm__(""			/* 32-bit MIPS targets */
 	"	bnez	$3,1b\n"
 	"	addiu	$4,$4,1\n"
 	"\n"
-#ifdef __CHERI_PURE_CAPABILITY__
-	"	cjr	$cra\n"
-#else
 	"	jr	$31\n"
-#endif
 	"	subu	$2,$4,$2\n"
 	"	.end	strlen\n"
 	"	.set	macro\n"

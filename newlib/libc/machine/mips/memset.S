@@ -424,8 +424,7 @@ L(lastbloop):
 	bne	a0,a3,L(lastbloop)
 	sb	a1,-1(a0)
 L(leave):
-	j	ra
-	nop
+       ENV_RETURN
 
 	.set	at
 	.set	reorder

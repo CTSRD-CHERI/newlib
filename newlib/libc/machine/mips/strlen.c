@@ -68,7 +68,11 @@ __asm__(""			/* 32-bit MIPS targets */
 	"	bnez	$3,1b\n"
 	"	addiu	$4,$4,1\n"
 	"\n"
+#ifdef __CHERI_PURE_CAPABILITY__
+	"	cjr	$cra\n"
+#else
 	"	jr	$31\n"
+#endif
 	"	subu	$2,$4,$2\n"
 	"	.end	strlen\n"
 	"	.set	macro\n"

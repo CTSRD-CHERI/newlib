@@ -358,4 +358,27 @@ name:
 #define _MCOUNT
 #endif
 
+/*
+ * CHERI declarations
+ */
+#ifdef __CHERI_PURE_CAPABILITY__
+
+/* Force non-PIC expansion of dla */
+#define CHERI_ASM_NOPIC    .option pic0
+
+/* If in CHERI purecap, do CHERI CJALR, otherwise do normal MIPS call using JALR */
+#define ENV_JALR(reg) \
+    cgetpccsetoffset $c12, reg;  \
+    cjalr            $c12, $c17; \
+    cgetaddr         reg, $c17;
+
+/* Do CHERI return in purecap mode */
+#define ENV_RETURN       \
+    cjr            $cra; \
+    nop
+#else
+#define ENV_JALR(reg) jalr reg; nop;
+#define ENV_RETURN    jr ra; nop;
+#endif
+
 #endif

@@ -599,8 +599,7 @@ L(lastbloop):
 	bne	a0,a3,L(lastbloop)
 	sb	v1,-1(a0)
 L(leave):
-	j	ra
-	nop
+    ENV_RETURN
 
 /* We jump here with a memcpy of less than 8 or 16 bytes, depending on
    whether or not USE_DOUBLE is defined.  Instead of just doing byte

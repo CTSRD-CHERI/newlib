@@ -29,6 +29,8 @@ parser.add_argument("--addr2line", metavar="ADDR2LINE", help="Path to qemu", def
 parser.add_argument("--timeout", metavar="SECONDS", help="Timeout for program run (0 = no timeout)", default=1800, type=int)
 parser.add_argument("--pretend", action="store_true", help="Only print the command that would be run.")
 parser.add_argument("--gdbstub", action="store_true", help="Wait for GDB to attach (disables timeout)")
+parser.add_argument("--serial", action="store_true", help="Have QEMU emulate a serial console (this messes up tracing to stderr, so is off by default)")
+parser.add_argument("--qemu-args", help="additional qemu args (use shell quoting rules)")
 parser.add_argument("CMD", help="The binary to excecute")
 parser.add_argument("ARGS", nargs=argparse.ZERO_OR_MORE, help="Arguments to pass to the binary")
 args = parser.parse_args()
@@ -46,6 +48,12 @@ command += [
     "-nographic",
     "-kernel", args.CMD
 ]
+if not args.serial:
+    # Ensure that QEMU doesn't treat stderr/stdout as a TTY but just writes to it as if it was a file
+    # This ensures that the \n characters are actually a newline+carriage-return and not just a linefeed
+    command += ["-serial", "none", "-monitor", "none"]
+if args.qemu_args:
+    command.extend(shlex.split(args.qemu_args))
 # for program_arg in args.ARGS:
 #    command.extend(["-append", program_arg])
 if args.ARGS:

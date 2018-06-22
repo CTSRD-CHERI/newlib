@@ -226,6 +226,8 @@ clean-info:
 
 test.o:	${srcdir}/test.c
 
+malta_mon.o: malta_mon.c yamon.h maltareg.h
+
 # these are for the BSPs
 crt0.o: ${srcdir}/crt0.S
 pcrt0.o: ${srcdir}/crt0.S

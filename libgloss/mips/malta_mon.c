@@ -39,19 +39,19 @@ typedef __SIZE_TYPE__ vaddr_t;
 
 /* FreeBSD sys/mips/include/cpuregs.h */
 #define	MIPS_KUSEG_START		0x00000000
-#define	MIPS_KSEG0_START		((intptr_t)(int32_t)0x80000000)
-#define	MIPS_KSEG0_END			((intptr_t)(int32_t)0x9fffffff)
-#define	MIPS_KSEG1_START		((intptr_t)(int32_t)0xa0000000)
-#define	MIPS_KSEG1_END			((intptr_t)(int32_t)0xbfffffff)
-#define	MIPS_KSSEG_START		((intptr_t)(int32_t)0xc0000000)
-#define	MIPS_KSSEG_END			((intptr_t)(int32_t)0xdfffffff)
-#define	MIPS_KSEG3_START		((intptr_t)(int32_t)0xe0000000)
-#define	MIPS_KSEG3_END			((intptr_t)(int32_t)0xffffffff)
+#define	MIPS_KSEG0_START		((vaddr_t)(int32_t)0x80000000)
+#define	MIPS_KSEG0_END			((vaddr_t)(int32_t)0x9fffffff)
+#define	MIPS_KSEG1_START		((vaddr_t)(int32_t)0xa0000000)
+#define	MIPS_KSEG1_END			((vaddr_t)(int32_t)0xbfffffff)
+#define	MIPS_KSSEG_START		((vaddr_t)(int32_t)0xc0000000)
+#define	MIPS_KSSEG_END			((vaddr_t)(int32_t)0xdfffffff)
+#define	MIPS_KSEG3_START		((vaddr_t)(int32_t)0xe0000000)
+#define	MIPS_KSEG3_END			((vaddr_t)(int32_t)0xffffffff)
 #define MIPS_KSEG2_START		MIPS_KSSEG_START
 #define MIPS_KSEG2_END			MIPS_KSSEG_END
 
-#define	MIPS_PHYS_TO_KSEG0(x)		((uintptr_t)(x) | MIPS_KSEG0_START)
-#define	MIPS_PHYS_TO_KSEG1(x)		((uintptr_t)(x) | MIPS_KSEG1_START)
+#define	MIPS_PHYS_TO_KSEG0(x)		((vaddr_t)(x) | MIPS_KSEG0_START)
+#define	MIPS_PHYS_TO_KSEG1(x)		((vaddr_t)(x) | MIPS_KSEG1_START)
 
 #include "maltareg.h"
 #include "yamon.h"
@@ -63,10 +63,10 @@ extern int snprintf(char *__restrict, size_t, const char *__restrict, ...) __att
 
 // monitor API:
 static inline void yamon_print(const char* s) {
-	YAMON_PRINT(s);
+	YAMON_PRINT((vaddr_t)s);
 }
 static inline void yamon_print_count(const char* s, size_t count) {
-	YAMON_PRINT_COUNT(s, count);
+	YAMON_PRINT_COUNT((vaddr_t)s, count);
 }
 
 #define ANSI_RESET "\x1B[00m"
@@ -111,7 +111,8 @@ static inline void yamon_print_count(const char* s, size_t count) {
 #define	 MALTA_SHUTDOWN 0x44 /* write this to MALTA_SOFTRES for board shutdown */
 
 static void do_malta_shutdown(void) {
-	volatile int* softres = (volatile int*)MIPS_PHYS_TO_KSEG1(MALTA_SOFTRES);
+	volatile int* softres = (volatile int*)ADDR_TO_DATAPTR(MIPS_PHYS_TO_KSEG1(MALTA_SOFTRES));
+#warning
 	*softres = MALTA_SHUTDOWN; // CHERI Shutdown extension
 	for (volatile int i = 0; i < 100; i++) {
 		__asm__ volatile ("ssnop" :::"memory");
@@ -286,8 +287,8 @@ asm(
 // extern int errno;
 
 int read(int fd, char* buf, size_t size) {
-	error_printf("Attempting to read %zd bytes from fd %d\n", size, fd);
 	errno = ENOSYS;
+	error_printf("Attempting to read %zd bytes from fd %d\n", size, fd);
 	return -1;
 }
 

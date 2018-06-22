@@ -54,36 +54,57 @@
 #define YAMON_SYSCON_READ_OFS	(YAMON_FUNCTION_BASE + 0x54)
 
 #ifdef __CHERI_PURE_CAPABILITY__
-#define ADDR_TO_FUNCPTR(addr) __builtin_cheri_offset_set(__builtin_cheri_program_counter_get(), addr)
-#define ADDR_TO_DATAPTR(addr) __builtin_cheri_offset_set(__builtin_cheri_global_data_get(), addr)
-#define YAMON_FUNC(ofs)		 \
-	ADDR_TO_FUNCPTR((*(int32_t *)ADDR_TO_DATAPTR(MIPS_PHYS_TO_KSEG0(ofs))))
+#define ADDR_TO_FUNCPTR(addr) __builtin_cheri_offset_set(__builtin_cheri_program_counter_get(), (vaddr_t)addr)
+#define ADDR_TO_DATAPTR(addr) __builtin_cheri_offset_set(__builtin_cheri_global_data_get(), (vaddr_t)addr)
 #else
 #define ADDR_TO_DATAPTR(addr) ((void*)(addr))
 #define ADDR_TO_FUNCPTR(addr) ((void*)(addr))
-#define YAMON_FUNC(ofs)		((long)(*(int32_t *)(MIPS_PHYS_TO_KSEG0(ofs))))
+#endif
+#define YAMON_FUNC_ADDR(ofs)		((long)(*(int32_t *)ADDR_TO_DATAPTR(MIPS_PHYS_TO_KSEG1(ofs))))
+
+// Calling into YAMON must adhere to the MIPS calling convention and not CHERI purecap!
+#ifndef __CHERI_PURE_CAPABILITY__
+typedef void (*t_yamon_3_arg)(register_t arg1, register_t arg2, register_t arg3);
+#define YAMON_3_ARG(ofs, arg1, arg2, arg3) \
+	((t_yamon_3_arg)(YAMON_FUNC_ADDR(ofs)))(arg1, arg2, arg3)
+#else
+extern void _YAMON_3_ARG(register_t arg1, register_t arg2, register_t arg3, register_t address);
+asm(".set noreorder\n\t"
+     ".text\n\t"
+     ".ent _YAMON_3_ARG\n\t"
+     ".global _YAMON_3_ARG\n\t"
+     "_YAMON_3_ARG:\n\t"
+     "move $t9, $a3\n\t"
+     "cmove $c18, $c17\n\t"  // Save $c17 since we are about to clobber it
+     "cgetpccsetoffset $c12, $t9\n\t"
+     "cjalr $c12, $c17\n\t"
+     "cgetaddr $ra, $c17\n\t" // So that YAMON can return it needs $ra set
+     "cjr $c18\n\t"
+     "nop\n\t"
+     ".end _YAMON_3_ARG\n\t");
+#define YAMON_3_ARG(ofs, arg1, arg2, arg3) _YAMON_3_ARG(arg1, arg2, arg3, YAMON_FUNC_ADDR(ofs))
 #endif
 
-typedef void (*t_yamon_print_count)(uint32_t port, const char *s, uint32_t count);
-#define YAMON_PRINT_COUNT(s, count) \
-	((t_yamon_print_count)(YAMON_FUNC(YAMON_PRINT_COUNT_OFS)))(0, s, count)
+#define YAMON_2_ARG(address, arg1, arg2) YAMON_3_ARG(address, arg1, arg2, 0)
+#define YAMON_1_ARG(address, arg1, arg2) YAMON_2_ARG(address, arg1, 0, 0)
+
+typedef void (*t_yamon_print_count)(uint32_t port, vaddr_t s, uint32_t count);
+#define YAMON_PRINT_COUNT(s, count) YAMON_3_ARG(YAMON_PRINT_COUNT_OFS, 0, s, count)
 
 typedef void (*t_yamon_exit)(uint32_t rc);
-#define YAMON_EXIT(rc) ((t_yamon_exit)(YAMON_FUNC(YAMON_EXIT_OFS)))(rc)
+// #define YAMON_EXIT(rc) ((t_yamon_exit)(YAMON_FUNC(YAMON_EXIT_OFS)))(rc)
+#define YAMON_EXIT(rc) YAMON_1_ARG(YAMON_FUNC(YAMON_EXIT_OFS), 0, s, count)
 
-typedef void (*t_yamon_print)(uint32_t port, const char *s);
-#define YAMON_PRINT(s) ((t_yamon_print)(YAMON_FUNC(YAMON_PRINT_OFS)))(0, s)
+typedef void (*t_yamon_print)(uint32_t port, vaddr_t s);
+#define YAMON_PRINT(s) YAMON_2_ARG(YAMON_PRINT_OFS, 0, s)
 
-typedef int (*t_yamon_getchar)(uint32_t port, char *ch);
-#define YAMON_GETCHAR(ch) \
-	((t_yamon_getchar)(YAMON_FUNC(YAMON_GETCHAR_OFS)))(0, ch)
+typedef int (*t_yamon_getchar)(uint32_t port, vaddr_t *ch);
+#define YAMON_GETCHAR(s) YAMON_2_ARG(YAMON_GETCHAR_OFS, 0, ch)
 
 typedef int t_yamon_syscon_id;
-typedef int (*t_yamon_syscon_read)(t_yamon_syscon_id id, void *param,
+typedef int (*t_yamon_syscon_read)(t_yamon_syscon_id id, vaddr_t param,
 				   uint32_t size);
-#define YAMON_SYSCON_READ(id, param, size)				\
-	((t_yamon_syscon_read)(YAMON_FUNC(YAMON_SYSCON_READ_OFS)))	\
-	(id, param, size)
+#define YAMON_SYSCON_READ(id, param, size)  YAMON_3_ARG(YAMON_SYSCON_READ_OFS, id, param, size)
 
 // the yamon pointers need to be sign extended!
 typedef int32_t yamon_ptr;

@@ -594,20 +594,23 @@ fhandler_base::open (int flags, mode_t mode)
 
   if (get_device () == FH_FS)
     {
-      /* Add the reparse point flag to native symlinks, otherwise we open the
-	 target, not the symlink.  This would break lstat. */
-      if (pc.is_rep_symlink ())
+      /* Add the reparse point flag to known repares points, otherwise we
+	 open the target, not the reparse point.  This would break lstat. */
+      if (pc.is_known_reparse_point ())
 	options |= FILE_OPEN_REPARSE_POINT;
 
       /* O_TMPFILE files are created with delete-on-close semantics, as well
 	 as with FILE_ATTRIBUTE_TEMPORARY.  The latter speeds up file access,
 	 because the OS tries to keep the file in memory as much as possible.
 	 In conjunction with FILE_DELETE_ON_CLOSE, ideally the OS never has
-	 to write to the disk at all. */
+	 to write to the disk at all.
+	 Note that O_TMPFILE_FILE_ATTRS also sets the DOS HIDDEN attribute
+	 to help telling Cygwin O_TMPFILE files apart from other files
+	 accidentally setting FILE_ATTRIBUTE_TEMPORARY. */
       if (flags & O_TMPFILE)
 	{
 	  access |= DELETE;
-	  file_attributes |= FILE_ATTRIBUTE_TEMPORARY;
+	  file_attributes |= O_TMPFILE_FILE_ATTRS;
 	  options |= FILE_DELETE_ON_CLOSE;
 	}
 
@@ -1564,7 +1567,7 @@ fhandler_base::fork_fixup (HANDLE parent, HANDLE &h, const char *name)
 {
   HANDLE oh = h;
   bool res = false;
-  if (/* !is_socket () && */ !close_on_exec ())
+  if (!close_on_exec ())
     debug_printf ("handle %p already opened", h);
   else if (!DuplicateHandle (parent, h, GetCurrentProcess (), &h,
 			     0, !close_on_exec (), DUPLICATE_SAME_ACCESS))

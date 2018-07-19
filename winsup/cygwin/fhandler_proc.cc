@@ -535,9 +535,9 @@ format_proc_stat (void *, char *&destbuf)
       for (unsigned long i = 0; i < wincap.cpu_count (); i++)
 	{
 	  kernel_time += (spt[i].KernelTime.QuadPart - spt[i].IdleTime.QuadPart)
-			 * HZ / 10000000ULL;
-	  user_time += spt[i].UserTime.QuadPart * HZ / 10000000ULL;
-	  idle_time += spt[i].IdleTime.QuadPart * HZ / 10000000ULL;
+			 * CLOCKS_PER_SEC / NS100PERSEC;
+	  user_time += spt[i].UserTime.QuadPart * CLOCKS_PER_SEC / NS100PERSEC;
+	  idle_time += spt[i].IdleTime.QuadPart * CLOCKS_PER_SEC / NS100PERSEC;
 	}
 
       eobuf += __small_sprintf (eobuf, "cpu %U %U %U %U\n",
@@ -546,9 +546,10 @@ format_proc_stat (void *, char *&destbuf)
       for (unsigned long i = 0; i < wincap.cpu_count (); i++)
 	{
 	  interrupt_count += spt[i].InterruptCount;
-	  kernel_time = (spt[i].KernelTime.QuadPart - spt[i].IdleTime.QuadPart) * HZ / 10000000ULL;
-	  user_time = spt[i].UserTime.QuadPart * HZ / 10000000ULL;
-	  idle_time = spt[i].IdleTime.QuadPart * HZ / 10000000ULL;
+	  kernel_time = (spt[i].KernelTime.QuadPart - spt[i].IdleTime.QuadPart)
+			* CLOCKS_PER_SEC / NS100PERSEC;
+	  user_time = spt[i].UserTime.QuadPart * CLOCKS_PER_SEC / NS100PERSEC;
+	  idle_time = spt[i].IdleTime.QuadPart * CLOCKS_PER_SEC / NS100PERSEC;
 	  eobuf += __small_sprintf (eobuf, "cpu%d %U %U %U %U\n", i,
 				    user_time, 0ULL, kernel_time, idle_time);
 	}
@@ -638,31 +639,47 @@ format_proc_cpuinfo (void *, char *&destbuf)
   char *buf = tp.c_get ();
   char *bufptr = buf;
 
-  DWORD lpi_size = NT_MAX_PATH;
   //WORD num_cpu_groups = 1;	/* Pre Windows 7, only one group... */
   WORD num_cpu_per_group = 64;	/* ...and a max of 64 CPUs. */
 
-  if (wincap.has_processor_groups ())
+  PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX lpi =
+	    (PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX) tp.c_get ();
+  DWORD lpi_size = NT_MAX_PATH;
+
+  /* Fake a SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX group info block on Vista
+     systems.  This may be over the top but if the below code just using
+     ActiveProcessorCount turns out to be insufficient, we can build on that. */
+  if (!wincap.has_processor_groups ()
+      || !GetLogicalProcessorInformationEx (RelationGroup, lpi, &lpi_size))
     {
-      PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX lpi =
-		(PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX) tp.c_get ();
-      lpi_size = NT_MAX_PATH;
-      if (!GetLogicalProcessorInformationEx (RelationGroup, lpi, &lpi_size))
-	lpi = NULL;
-      else
-	{
-	  PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX plpi = lpi;
-	  for (DWORD size = lpi_size; size > 0;
-	       size -= plpi->Size, add_size (plpi, plpi->Size))
-	    if (plpi->Relationship == RelationGroup)
-	      {
-		//num_cpu_groups = plpi->Group.MaximumGroupCount;
-		num_cpu_per_group
-			= plpi->Group.GroupInfo[0].MaximumProcessorCount;
-		break;
-	      }
-	}
+      lpi_size = sizeof *lpi;
+      lpi->Relationship = RelationGroup;
+      lpi->Size = lpi_size;
+      lpi->Group.MaximumGroupCount = 1;
+      lpi->Group.ActiveGroupCount = 1;
+      lpi->Group.GroupInfo[0].MaximumProcessorCount = wincap.cpu_count ();
+      lpi->Group.GroupInfo[0].ActiveProcessorCount
+	= __builtin_popcountl (wincap.cpu_mask ());
+      lpi->Group.GroupInfo[0].ActiveProcessorMask = wincap.cpu_mask ();
     }
+
+  PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX plpi = lpi;
+  for (DWORD size = lpi_size; size > 0;
+       size -= plpi->Size, add_size (plpi, plpi->Size))
+    if (plpi->Relationship == RelationGroup)
+      {
+	//num_cpu_groups = plpi->Group.MaximumGroupCount;
+	/* Turns out, there are systems with a MaximumProcessorCount not
+	   reflecting the actually available CPUs.  The ActiveProcessorCount
+	   is correct though.  So we just use ActiveProcessorCount for now,
+	   hoping the best.  If it turns out that we have to handle more
+	   complex CPU layouts with weird ActiveProcessorMasks, we can
+	   do that by restructuring the subsequent CPU loop. */
+	num_cpu_per_group
+		= plpi->Group.GroupInfo[0].ActiveProcessorCount;
+	break;
+      }
+
 
   cpu_num_p = wcpcpy (cpu_key, L"\\Registry\\Machine\\HARDWARE\\DESCRIPTION"
 				"\\System\\CentralProcessor\\");
@@ -767,8 +784,9 @@ format_proc_cpuinfo (void *, char *&destbuf)
 	  extern long get_cpu_cache_intel (int sysc, uint32_t maxf);
 	  long cs;
 
-	  /* As on Linux, don't check for L3 cache. */
-	  cs = get_cpu_cache_intel (_SC_LEVEL2_CACHE_SIZE, maxf);
+	  cs = get_cpu_cache_intel (_SC_LEVEL3_CACHE_SIZE, maxf);
+	  if (cs == -1)
+	    cs = get_cpu_cache_intel (_SC_LEVEL2_CACHE_SIZE, maxf);
 	  if (cs == -1)
 	    {
 	      cs = get_cpu_cache_intel (_SC_LEVEL1_ICACHE_SIZE, maxf);

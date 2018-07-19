@@ -187,12 +187,16 @@ int pthread_spin_unlock (pthread_spinlock_t *);
 #endif
 
 /* RW Locks */
-#if __XSI_VISIBLE >= 500 || __POSIX_VISIBLE >= 200112
+#if __XSI_VISIBLE >= 500 || __POSIX_VISIBLE >= 200112 || __cplusplus >= 201402L
 int pthread_rwlock_destroy (pthread_rwlock_t *rwlock);
 int pthread_rwlock_init (pthread_rwlock_t *rwlock, const pthread_rwlockattr_t *attr);
 int pthread_rwlock_rdlock (pthread_rwlock_t *rwlock);
+int pthread_rwlock_timedrdlock (pthread_rwlock_t *rwlock,
+				const struct timespec *abstime);
 int pthread_rwlock_tryrdlock (pthread_rwlock_t *rwlock);
 int pthread_rwlock_wrlock (pthread_rwlock_t *rwlock);
+int pthread_rwlock_timedwrlock (pthread_rwlock_t *rwlock,
+				const struct timespec *abstime);
 int pthread_rwlock_trywrlock (pthread_rwlock_t *rwlock);
 int pthread_rwlock_unlock (pthread_rwlock_t *rwlock);
 int pthread_rwlockattr_init (pthread_rwlockattr_t *rwlockattr);

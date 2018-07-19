@@ -52,26 +52,20 @@
    declaration error with the XPG variant implemented herein. */
 #define basename basename
 #include "winsup.h"
-#include "miscfuncs.h"
-#include <ctype.h>
-#include <winioctl.h>
-#include <shlobj.h>
+#include <w32api/winioctl.h>
+#include <w32api/shlobj.h>
 #include <sys/param.h>
 #include <sys/cygwin.h>
+#include <wctype.h>
+#include <assert.h>
 #include "cygerrno.h"
-#include "security.h"
 #include "path.h"
 #include "fhandler.h"
 #include "dtable.h"
 #include "cygheap.h"
 #include "shared_info.h"
-#include "cygtls.h"
 #include "tls_pbuf.h"
 #include "environ.h"
-#include <assert.h>
-#include <ntdll.h>
-#include <wchar.h>
-#include <wctype.h>
 #undef basename
 
 suffix_info stat_suffixes[] =
@@ -710,8 +704,6 @@ path_conv::check (const char *src, unsigned opt,
       /* This loop handles symlink expansion.  */
       for (;;)
 	{
-	  assert (src);
-
 	  is_relpath = !isabspath (src);
 	  error = normalize_posix_path (src, path_copy, tail);
 	  if (error > 0)
@@ -864,7 +856,7 @@ path_conv::check (const char *src, unsigned opt,
 			if (component == 0)
 			  {
 			    fileattr = 0;
-			    dev.parse (FH_TCP);
+			    dev.parse (FH_SOCKET);
 			  }
 			break;
 		      case virt_fsdir:
@@ -959,8 +951,9 @@ path_conv::check (const char *src, unsigned opt,
 		      return;
 		    }
 		  fileattr = sym.fileattr;
-		  dev.parse (FH_UNIX);
+		  dev.parse ((sym.pflags & PATH_REP) ? FH_UNIX : FH_LOCAL);
 		  dev.setfs (1);
+		  path_flags = sym.pflags;
 		  goto out;
 		}
 
@@ -1013,7 +1006,7 @@ path_conv::check (const char *src, unsigned opt,
 		  saw_symlinks = 1;
 		  if (component == 0 && !need_directory
 		      && (!(opt & PC_SYM_FOLLOW)
-			  || (is_rep_symlink ()
+			  || (is_known_reparse_point ()
 			      && (opt & PC_SYM_NOFOLLOW_REP))))
 		    {
 		      /* last component of path is a symlink. */
@@ -1343,6 +1336,7 @@ int
 normalize_win32_path (const char *src, char *dst, char *&tail)
 {
   const char *src_start = src;
+  const char *dst_start = dst;
   bool beg_src_slash = isdirsep (src[0]);
 
   tail = dst;
@@ -1377,27 +1371,43 @@ normalize_win32_path (const char *src, char *dst, char *&tail)
 	      src += 2;
 	    }
 	}
+      dst = tail;
+      /* If backslash is missing in src, add one. */
+      if (!isdirsep (src[0]))
+	*tail++ = '\\';
     }
-  if (tail == dst)
+  if (tail == dst_start)
     {
       if (isdrive (src))
-	/* Always convert drive letter to uppercase for case sensitivity. */
-	*tail++ = cyg_toupper (*src++);
+	{
+	  /* Always convert drive letter to uppercase for case sensitivity. */
+	  *tail++ = cyg_toupper (*src++);
+	  *tail++ = *src++;
+	  dst = tail;
+	  /* If backslash is missing in src, add one. */
+	  if (!isdirsep (src[0]))
+	    *tail++ = '\\';
+	}
       else if (*src != '/')
 	{
 	  if (beg_src_slash)
-	    tail += cygheap->cwd.get_drive (dst);
-	  else if (!cygheap->cwd.get (dst, 0))
-	    return get_errno ();
-	  else
+	    dst = (tail += cygheap->cwd.get_drive (dst));
+	  else if (cygheap->cwd.get (dst, 0))
 	    {
 	      tail = strchr (tail, '\0');
 	      if (tail[-1] != '\\')
 		*tail++ = '\\';
+	      dst = tail - 1;
 	    }
+	  else
+	    return get_errno ();
 	}
     }
 
+  /* At this point dst points to the first backslash, even if it only gets
+     written in the first iteration of the following loop.  Backing up to
+     handle ".." components can not underrun that border (thus avoiding
+     subsequent buffer underruns with fatal results). */
   while (*src)
     {
       /* Strip duplicate /'s.  */
@@ -1449,7 +1459,7 @@ normalize_win32_path (const char *src, char *dst, char *&tail)
   if (tail > dst + 1 && tail[-1] == '.' && tail[-2] == '\\')
     tail--;
   *tail = '\0';
-  debug_printf ("%s = normalize_win32_path (%s)", dst, src_start);
+  debug_printf ("%s = normalize_win32_path (%s)", dst_start, src_start);
   return 0;
 }
 
@@ -2337,7 +2347,7 @@ check_reparse_point_target (HANDLE h, bool remote, PREPARSE_DATA_BUFFER rp,
 		rp->SymbolicLinkReparseBuffer.SubstituteNameLength);
       if ((rp->SymbolicLinkReparseBuffer.Flags & SYMLINK_FLAG_RELATIVE) ||
           check_reparse_point_string (psymbuf))
-	return 1;
+	return PATH_SYMLINK | PATH_REP;
     }
   else if (!remote && rp->ReparseTag == IO_REPARSE_TAG_MOUNT_POINT)
     {
@@ -2358,7 +2368,14 @@ check_reparse_point_target (HANDLE h, bool remote, PREPARSE_DATA_BUFFER rp,
 	  return -EPERM;
 	}
       if (check_reparse_point_string (psymbuf))
-	return 1;
+	return PATH_SYMLINK | PATH_REP;
+    }
+  else if (rp->ReparseTag == IO_REPARSE_TAG_CYGUNIX)
+    {
+      PREPARSE_GUID_DATA_BUFFER rgp = (PREPARSE_GUID_DATA_BUFFER) rp;
+
+      if (memcmp (CYGWIN_SOCKET_GUID, &rgp->ReparseGuid, sizeof (GUID)) == 0)
+	return PATH_SOCKET | PATH_REP;
     }
   return 0;
 }
@@ -2385,10 +2402,11 @@ symlink_info::check_reparse_point (HANDLE h, bool remote)
       fileattr &= ~FILE_ATTRIBUTE_REPARSE_POINT;
       return ret;
     }
-  /* ret is > 0, so it's a reparse point, path in symbuf. */
-  sys_wcstombs (srcbuf, SYMLINK_MAX + 7, symbuf.Buffer,
-		symbuf.Length / sizeof (WCHAR));
-  pflags |= PATH_SYMLINK | PATH_REP;
+  /* ret is > 0, so it's a known reparse point, path in symbuf. */
+  pflags |= ret;
+  if (ret & PATH_SYMLINK)
+    sys_wcstombs (srcbuf, SYMLINK_MAX + 7, symbuf.Buffer,
+		  symbuf.Length / sizeof (WCHAR));
   /* A symlink is never a directory. */
   fileattr &= ~FILE_ATTRIBUTE_DIRECTORY;
   return posixify (srcbuf);
@@ -2800,7 +2818,7 @@ restart:
 	      if (*p != '.' && *p != ' ')
 		{
 		  while (*--p != '\\')
-		    ;
+		    assert(p >= path);
 		  if (*++p != ' ')
 		    p = NULL;
 		}
@@ -3551,7 +3569,7 @@ cygwin_create_path (cygwin_conv_path_t what, const void *from)
   return to;
 }
 
-#ifndef __x86_64__	/* Disable deprecated functions on x86_64. */
+#ifdef __i386__
 
 extern "C" int
 cygwin_conv_to_win32_path (const char *path, char *win32_path)
@@ -3583,7 +3601,7 @@ cygwin_conv_to_full_posix_path (const char *path, char *posix_path)
 			   MAX_PATH);
 }
 
-#endif /* !__x86_64__ */
+#endif /* __i386__ */
 
 /* The realpath function is required by POSIX:2008.  */
 
@@ -3733,7 +3751,7 @@ env_PATH_to_posix (const void *win32, void *posix, size_t size)
 				     size, ENV_CVT));
 }
 
-#ifndef __x86_64__	/* Disable deprecated functions on x86_64. */
+#ifdef __i386__
 
 extern "C" int
 cygwin_win32_to_posix_path_list_buf_size (const char *path_list)
@@ -3761,7 +3779,7 @@ cygwin_posix_to_win32_path_list (const char *posix, char *win32)
 		     CCP_POSIX_TO_WIN_A | CCP_RELATIVE));
 }
 
-#endif /* !__x86_64__ */
+#endif /* __i386__ */
 
 extern "C" ssize_t
 cygwin_conv_path_list (cygwin_conv_path_t what, const void *from, void *to,

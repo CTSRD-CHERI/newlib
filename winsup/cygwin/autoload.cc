@@ -401,7 +401,7 @@ __attribute__ ((used, noinline)) static two_addr_t
 std_dll_init ()
 #endif
 {
-#ifndef __x86_64__
+#ifdef __i386__
   struct func_info *func = (struct func_info *) __builtin_return_address (0);
 #endif
   struct dll_info *dll = func->dll;
@@ -453,7 +453,7 @@ std_dll_init ()
 
   InterlockedDecrement (&dll->here);
 
-#ifndef __x86_64__
+#ifdef __i386__
   /* Kludge alert.  Redirects the return address to dll_chain. */
   uintptr_t *volatile frame = (uintptr_t *) __builtin_frame_address (0);
   frame[1] = (uintptr_t) dll_chain;
@@ -480,7 +480,7 @@ wsock_init ()
      See the git log for a description. */
   static WSADATA NO_COPY wsadata;
   static LONG NO_COPY here = -1L;
-#ifndef __x86_64__
+#ifdef __i386__
   struct func_info *func = (struct func_info *) __builtin_return_address (0);
 #endif
   struct dll_info *dll = func->dll;
@@ -514,7 +514,7 @@ wsock_init ()
 	}
     }
 
-#ifndef __x86_64__
+#ifdef __i386__
   /* Kludge alert.  Redirects the return address to dll_chain. */
   uintptr_t *volatile frame = (uintptr_t *) __builtin_frame_address (0);
   frame[1] = (uintptr_t) dll_chain;
@@ -573,6 +573,8 @@ LoadDLLfunc (GetIfEntry, 4, iphlpapi)
 LoadDLLfunc (GetIpAddrTable, 12, iphlpapi)
 LoadDLLfunc (GetIpForwardTable, 12, iphlpapi)
 LoadDLLfunc (GetNetworkParams, 8, iphlpapi)
+LoadDLLfunc (GetTcpTable, 12, iphlpapi)
+LoadDLLfunc (GetTcp6Table, 12, iphlpapi)
 LoadDLLfunc (GetUdpTable, 12, iphlpapi)
 LoadDLLfunc (if_indextoname, 8, iphlpapi)
 LoadDLLfunc (if_nametoindex, 4, iphlpapi)

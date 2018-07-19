@@ -182,42 +182,6 @@ dup3 (int oldfd, int newfd, int flags)
   return res;
 }
 
-/* Define macro to simplify checking for a transactional error code. */
-#define NT_TRANSACTIONAL_ERROR(s)	\
-		(((ULONG)(s) >= (ULONG)STATUS_TRANSACTIONAL_CONFLICT) \
-		 && ((ULONG)(s) <= (ULONG)STATUS_TRANSACTION_NOT_ENLISTED))
-
-static inline void
-start_transaction (HANDLE &old_trans, HANDLE &trans)
-{
-  NTSTATUS status = NtCreateTransaction (&trans,
-				SYNCHRONIZE | TRANSACTION_ALL_ACCESS,
-				NULL, NULL, NULL, 0, 0, 0, NULL, NULL);
-  if (NT_SUCCESS (status))
-    {
-      old_trans = RtlGetCurrentTransaction ();
-      RtlSetCurrentTransaction (trans);
-    }
-  else
-    {
-      debug_printf ("NtCreateTransaction failed, %y", status);
-      old_trans = trans = NULL;
-    }
-}
-
-static inline NTSTATUS
-stop_transaction (NTSTATUS status, HANDLE old_trans, HANDLE &trans)
-{
-  RtlSetCurrentTransaction (old_trans);
-  if (NT_SUCCESS (status))
-    status = NtCommitTransaction (trans, TRUE);
-  else
-    status = NtRollbackTransaction (trans, TRUE);
-  NtClose (trans);
-  trans = NULL;
-  return status;
-}
-
 static const char desktop_ini[] =
   "[.ShellClassInfo]\r\n"
   "CLSID={645FF040-5081-101B-9F08-00AA002F954E}\r\n"
@@ -705,9 +669,9 @@ unlink_nt (path_conv &pc)
 		  pc.get_nt_native_path (), pc.isdir ());
   ACCESS_MASK access = DELETE;
   ULONG flags = FILE_OPEN_FOR_BACKUP_INTENT;
-  /* Add the reparse point flag to native symlinks, otherwise we remove the
-     target, not the symlink. */
-  if (pc.is_rep_symlink ())
+  /* Add the reparse point flag to known reparse points, otherwise we remove
+     the target, not the reparse point. */
+  if (pc.is_known_reparse_point ())
     flags |= FILE_OPEN_REPARSE_POINT;
 
   pc.get_object_attr (attr, sec_none_nih);
@@ -1507,16 +1471,16 @@ lseek64 (int fd, off_t pos, int dir)
 
 EXPORT_ALIAS (lseek64, _lseek64)
 
-#ifdef __x86_64__
-EXPORT_ALIAS (lseek64, lseek)
-EXPORT_ALIAS (lseek64, _lseek)
-#else
+#ifdef __i386__
 extern "C" _off_t
 lseek (int fd, _off_t pos, int dir)
 {
   return lseek64 (fd, (off_t) pos, dir);
 }
 EXPORT_ALIAS (lseek, _lseek)
+#else
+EXPORT_ALIAS (lseek64, lseek)
+EXPORT_ALIAS (lseek64, _lseek)
 #endif
 
 
@@ -1623,15 +1587,15 @@ chown32 (const char * name, uid_t uid, gid_t gid)
   return chown_worker (name, PC_SYM_FOLLOW, uid, gid);
 }
 
-#ifdef __x86_64__
-EXPORT_ALIAS (chown32, chown)
-#else
+#ifdef __i386__
 extern "C" int
 chown (const char * name, __uid16_t uid, __gid16_t gid)
 {
   return chown_worker (name, PC_SYM_FOLLOW,
 		       uid16touid32 (uid), gid16togid32 (gid));
 }
+#else
+EXPORT_ALIAS (chown32, chown)
 #endif
 
 extern "C" int
@@ -1640,15 +1604,15 @@ lchown32 (const char * name, uid_t uid, gid_t gid)
   return chown_worker (name, PC_SYM_NOFOLLOW, uid, gid);
 }
 
-#ifdef __x86_64__
-EXPORT_ALIAS (lchown32, lchown)
-#else
+#ifdef __i386__
 extern "C" int
 lchown (const char * name, __uid16_t uid, __gid16_t gid)
 {
   return chown_worker (name, PC_SYM_NOFOLLOW,
 		       uid16touid32 (uid), gid16togid32 (gid));
 }
+#else
+EXPORT_ALIAS (lchown32, lchown)
 #endif
 
 extern "C" int
@@ -1667,14 +1631,14 @@ fchown32 (int fd, uid_t uid, gid_t gid)
   return res;
 }
 
-#ifdef __x86_64__
-EXPORT_ALIAS (fchown32, fchown)
-#else
+#ifdef __i386__
 extern "C" int
 fchown (int fd, __uid16_t uid, __gid16_t gid)
 {
   return fchown32 (fd, uid16touid32 (uid), gid16togid32 (gid));
 }
+#else
+EXPORT_ALIAS (fchown32, fchown)
 #endif
 
 /* umask: POSIX 5.3.3.1 */
@@ -1735,7 +1699,7 @@ fchmod (int fd, mode_t mode)
   return cfd->fchmod (FILTERED_MODE (mode));
 }
 
-#ifndef __x86_64__
+#ifdef __i386__
 static void
 stat64_to_stat32 (struct stat *src, struct __stat32 *dst)
 {
@@ -1839,10 +1803,7 @@ _fstat64_r (struct _reent *ptr, int fd, struct stat *buf)
   return ret;
 }
 
-#ifdef __x86_64__
-EXPORT_ALIAS (fstat64, fstat)
-EXPORT_ALIAS (_fstat64_r, _fstat_r)
-#else
+#ifdef __i386__
 extern "C" int
 fstat (int fd, struct stat *buf)
 {
@@ -1862,6 +1823,9 @@ _fstat_r (struct _reent *ptr, int fd, struct stat *buf)
     ptr->_errno = get_errno ();
   return ret;
 }
+#else
+EXPORT_ALIAS (fstat64, fstat)
+EXPORT_ALIAS (_fstat64_r, _fstat_r)
 #endif
 
 /* fsync: P96 6.6.1.1 */
@@ -1996,10 +1960,7 @@ _stat64_r (struct _reent *__restrict ptr, const char *__restrict name,
   return ret;
 }
 
-#ifdef __x86_64__
-EXPORT_ALIAS (stat64, stat)
-EXPORT_ALIAS (_stat64_r, _stat_r)
-#else
+#ifdef __i386__
 extern "C" int
 stat (const char *__restrict name, struct stat *__restrict buf)
 {
@@ -2020,6 +1981,9 @@ _stat_r (struct _reent *__restrict ptr, const char *__restrict name,
     ptr->_errno = get_errno ();
   return ret;
 }
+#else
+EXPORT_ALIAS (stat64, stat)
+EXPORT_ALIAS (_stat64_r, _stat_r)
 #endif
 
 /* lstat: Provided by SVR4 and 4.3+BSD, POSIX? */
@@ -2032,9 +1996,7 @@ lstat64 (const char *__restrict name, struct stat *__restrict buf)
   return stat_worker (pc, buf);
 }
 
-#ifdef __x86_64__
-EXPORT_ALIAS (lstat64, lstat)
-#else
+#ifdef __i386__
 /* lstat: Provided by SVR4 and 4.3+BSD, POSIX? */
 extern "C" int
 lstat (const char *__restrict name, struct stat *__restrict buf)
@@ -2045,6 +2007,8 @@ lstat (const char *__restrict name, struct stat *__restrict buf)
     stat64_to_stat32 (&buf64, (struct __stat32 *) buf);
   return ret;
 }
+#else
+EXPORT_ALIAS (lstat64, lstat)
 #endif
 
 extern "C" int
@@ -2477,7 +2441,8 @@ rename2 (const char *oldpath, const char *newpath, unsigned int flags)
 	ULONG sharing = FILE_SHARE_READ | FILE_SHARE_WRITE
 			| (oldpc.fs_is_samba () ? 0 : FILE_SHARE_DELETE);
 	ULONG flags = FILE_OPEN_FOR_BACKUP_INTENT
-		      | (oldpc.is_rep_symlink () ? FILE_OPEN_REPARSE_POINT : 0);
+		      | (oldpc.is_known_reparse_point ()
+			 ? FILE_OPEN_REPARSE_POINT : 0);
 	status = NtOpenFile (&fh, access,
 			     oldpc.get_object_attr (attr, sec_none_nih),
 			     &io, sharing, flags);
@@ -2541,7 +2506,7 @@ rename2 (const char *oldpath, const char *newpath, unsigned int flags)
 			       dstpc->get_object_attr (attr, sec_none_nih),
 			       &io, FILE_SHARE_VALID_FLAGS,
 			       FILE_OPEN_FOR_BACKUP_INTENT
-			       | (dstpc->is_rep_symlink ()
+			       | (dstpc->is_known_reparse_point ()
 				  ? FILE_OPEN_REPARSE_POINT : 0));
 	  if (!NT_SUCCESS (status))
 	    {
@@ -2575,7 +2540,7 @@ rename2 (const char *oldpath, const char *newpath, unsigned int flags)
 		     (removepc ?: dstpc)->get_object_attr (attr, sec_none_nih),
 		     &io, FILE_SHARE_VALID_FLAGS,
 		     FILE_OPEN_FOR_BACKUP_INTENT
-		     | ((removepc ?: dstpc)->is_rep_symlink ()
+		     | ((removepc ?: dstpc)->is_known_reparse_point ()
 			? FILE_OPEN_REPARSE_POINT : 0))))
 	{
 	  FILE_INTERNAL_INFORMATION ofii, nfii;
@@ -2651,7 +2616,7 @@ rename2 (const char *oldpath, const char *newpath, unsigned int flags)
 				     oldpc.get_object_attr (attr, sec_none_nih),
 				     &io, FILE_SHARE_VALID_FLAGS,
 				     FILE_OPEN_FOR_BACKUP_INTENT
-				     | (oldpc.is_rep_symlink ()
+				     | (oldpc.is_known_reparse_point ()
 					? FILE_OPEN_REPARSE_POINT : 0));
 	      if (NT_SUCCESS (status))
 		{
@@ -3023,15 +2988,15 @@ ftruncate64 (int fd, off_t length)
   return res;
 }
 
-#ifdef __x86_64__
-EXPORT_ALIAS (ftruncate64, ftruncate)
-#else
+#ifdef __i386__
 /* ftruncate: P96 5.6.7.1 */
 extern "C" int
 ftruncate (int fd, _off_t length)
 {
   return ftruncate64 (fd, (off_t)length);
 }
+#else
+EXPORT_ALIAS (ftruncate64, ftruncate)
 #endif
 
 /* truncate: Provided by SVR4 and 4.3+BSD.  Not part of POSIX.1 or XPG3 */
@@ -3053,15 +3018,15 @@ truncate64 (const char *pathname, off_t length)
   return res;
 }
 
-#ifdef __x86_64__
-EXPORT_ALIAS (truncate64, truncate)
-#else
+#ifdef __i386__
 /* truncate: Provided by SVR4 and 4.3+BSD.  Not part of POSIX.1 or XPG3 */
 extern "C" int
 truncate (const char *pathname, _off_t length)
 {
   return truncate64 (pathname, (off_t)length);
 }
+#else
+EXPORT_ALIAS (truncate64, truncate)
 #endif
 
 extern "C" long
@@ -3548,14 +3513,14 @@ seteuid32 (uid_t uid)
   return 0;
 }
 
-#ifdef __x86_64__
-EXPORT_ALIAS (seteuid32, seteuid)
-#else
+#ifdef __i386__
 extern "C" int
 seteuid (__uid16_t uid)
 {
   return seteuid32 (uid16touid32 (uid));
 }
+#else
+EXPORT_ALIAS (seteuid32, seteuid)
 #endif
 
 /* setuid: POSIX 4.2.2.1 */
@@ -3573,14 +3538,14 @@ setuid32 (uid_t uid)
   return ret;
 }
 
-#ifdef __x86_64__
-EXPORT_ALIAS (setuid32, setuid)
-#else
+#ifdef __i386__
 extern "C" int
 setuid (__uid16_t uid)
 {
   return setuid32 (uid16touid32 (uid));
 }
+#else
+EXPORT_ALIAS (setuid32, setuid)
 #endif
 
 extern "C" int
@@ -3602,14 +3567,14 @@ setreuid32 (uid_t ruid, uid_t euid)
   return ret;
 }
 
-#ifdef __x86_64__
-EXPORT_ALIAS (setreuid32, setreuid)
-#else
+#ifdef __i386__
 extern "C" int
 setreuid (__uid16_t ruid, __uid16_t euid)
 {
   return setreuid32 (uid16touid32 (ruid), uid16touid32 (euid));
 }
+#else
+EXPORT_ALIAS (setreuid32, setreuid)
 #endif
 
 /* setegid: from System V.  */
@@ -3662,14 +3627,14 @@ setegid32 (gid_t gid)
   return 0;
 }
 
-#ifdef __x86_64__
-EXPORT_ALIAS (setegid32, setegid)
-#else
+#ifdef __i386__
 extern "C" int
 setegid (__gid16_t gid)
 {
   return setegid32 (gid16togid32 (gid));
 }
+#else
+EXPORT_ALIAS (setegid32, setegid)
 #endif
 
 /* setgid: POSIX 4.2.2.1 */
@@ -3682,9 +3647,7 @@ setgid32 (gid_t gid)
   return ret;
 }
 
-#ifdef __x86_64__
-EXPORT_ALIAS (setgid32, setgid)
-#else
+#ifdef __i386__
 extern "C" int
 setgid (__gid16_t gid)
 {
@@ -3693,6 +3656,8 @@ setgid (__gid16_t gid)
     cygheap->user.real_gid = myself->gid;
   return ret;
 }
+#else
+EXPORT_ALIAS (setgid32, setgid)
 #endif
 
 extern "C" int
@@ -3714,14 +3679,14 @@ setregid32 (gid_t rgid, gid_t egid)
   return ret;
 }
 
-#ifdef __x86_64__
-EXPORT_ALIAS (setregid32, setregid)
-#else
+#ifdef __i386__
 extern "C" int
 setregid (__gid16_t rgid, __gid16_t egid)
 {
   return setregid32 (gid16togid32 (rgid), gid16togid32 (egid));
 }
+#else
+EXPORT_ALIAS (setregid32, setregid)
 #endif
 
 /* chroot: privileged Unix system call.  */

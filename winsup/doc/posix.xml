@@ -86,9 +86,9 @@ also IEEE Std 1003.1-2008 (POSIX.1-2008).</para>
     catanhf
     catanhl
     catanl
-    catclose 			(available in external "catgets" library)
-    catgets  			(available in external "catgets" library)
-    catopen  			(available in external "catgets" library)
+    catclose
+    catgets
+    catopen
     cbrt
     cbrtf
     cbrtl
@@ -888,6 +888,7 @@ also IEEE Std 1003.1-2008 (POSIX.1-2008).</para>
     sigset
     sigsetjmp
     sigsuspend
+    sigtimedwait
     sigwait
     sigwaitinfo
     sin
@@ -1396,6 +1397,7 @@ also IEEE Std 1003.1-2008 (POSIX.1-2008).</para>
     wcstoll_l
     wcstoul_l
     wcstoull_l
+    wmempcpy
 </screen>
 
 </sect1>
@@ -1581,7 +1583,6 @@ also IEEE Std 1003.1-2008 (POSIX.1-2008).</para>
     pthread_mutex_consistent
     putmsg
     setnetent
-    sigtimedwait
     timer_getoverrun
     ulimit
     waitid

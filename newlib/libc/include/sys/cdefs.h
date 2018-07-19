@@ -258,12 +258,12 @@
 #define	__section(x)	__attribute__((__section__(x)))
 #endif
 #if __GNUC_PREREQ__(4, 3) || __has_attribute(__alloc_size__)
-#define	__alloc_size(x)	__attribute__((__alloc_size__(x)))
+#define	__alloc_size(x)	__attribute__((__alloc_size__ x))
 #else
 #define	__alloc_size(x)
 #endif
 #if __GNUC_PREREQ__(4, 9) || __has_attribute(__alloc_align__)
-#define	__alloc_align(x)	__attribute__((__alloc_align__(x)))
+#define	__alloc_align(x)	__attribute__((__alloc_align__ x))
 #else
 #define	__alloc_align(x)
 #endif
@@ -385,7 +385,7 @@
 #endif
 
 #if __GNUC_PREREQ__(3, 1) || (defined(__INTEL_COMPILER) && __INTEL_COMPILER >= 800)
-#define	__always_inline	__attribute__((__always_inline__))
+#define	__always_inline	__inline__ __attribute__((__always_inline__))
 #else
 #define	__always_inline
 #endif
@@ -397,7 +397,7 @@
 #endif
 
 #if __GNUC_PREREQ__(3, 3)
-#define	__nonnull(x)	__attribute__((__nonnull__(x)))
+#define	__nonnull(x)	__attribute__((__nonnull__ x))
 #define	__nonnull_all	__attribute__((__nonnull__))
 #else
 #define	__nonnull(x)

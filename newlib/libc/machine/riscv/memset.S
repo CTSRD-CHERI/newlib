@@ -37,7 +37,7 @@ memset:
   bnez a1, .Lwordify
 
 .Lwordified:
-  and a3, a2, ~15
+  and a3, a2, -16 # ~15
   and a2, a2, 15
   add a3, a3, a4
 
@@ -64,7 +64,7 @@ memset:
 .option push
 .option norvc
 .Ltable_misaligned:
-  jr a3, %pcrel_lo(1b)
+  jalr zero, a3, %pcrel_lo(1b)
 .Ltable:
   sb a1,14(a4)
   sb a1,13(a4)
@@ -101,7 +101,7 @@ memset:
 1:auipc t0, %pcrel_hi(.Ltable_misaligned)
   add a3, a3, t0
   mv t0, ra
-  jalr a3, %pcrel_lo(1b)
+  jalr ra, a3, %pcrel_lo(1b)
   mv ra, t0
 
   add a5, a5, -16

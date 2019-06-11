@@ -218,7 +218,7 @@ two_way_short_needle (const unsigned char *haystack, size_t haystack_len,
 	 of the period.  */
       size_t memory = 0;
       j = 0;
-      while (AVAILABLE (haystack, haystack_len, j, needle_len))
+      while (AVAILABLE ((const char*)haystack, haystack_len, j, needle_len))
 	{
 	  /* Scan for matches in right half.  */
 	  i = MAX (suffix, memory);
@@ -252,7 +252,7 @@ two_way_short_needle (const unsigned char *haystack, size_t haystack_len,
 	 required, and any mismatch results in a maximal shift.  */
       period = MAX (suffix, needle_len - suffix) + 1;
       j = 0;
-      while (AVAILABLE (haystack, haystack_len, j, needle_len))
+      while (AVAILABLE ((const char*)haystack, haystack_len, j, needle_len))
 	{
 	  /* Scan for matches in right half.  */
 	  i = suffix;
@@ -323,7 +323,7 @@ two_way_long_needle (const unsigned char *haystack, size_t haystack_len,
       size_t memory = 0;
       size_t shift;
       j = 0;
-      while (AVAILABLE (haystack, haystack_len, j, needle_len))
+      while (AVAILABLE ((const char*)haystack, haystack_len, j, needle_len))
 	{
 	  /* Check the last byte first; if it does not match, then
 	     shift to the next possible match location.  */
@@ -375,7 +375,7 @@ two_way_long_needle (const unsigned char *haystack, size_t haystack_len,
       size_t shift;
       period = MAX (suffix, needle_len - suffix) + 1;
       j = 0;
-      while (AVAILABLE (haystack, haystack_len, j, needle_len))
+      while (AVAILABLE ((const char*)haystack, haystack_len, j, needle_len))
 	{
 	  /* Check the last byte first; if it does not match, then
 	     shift to the next possible match location.  */

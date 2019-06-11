@@ -118,7 +118,7 @@ case $maybe_os in
   linux-musl* | linux-uclibc* | uclinux-uclibc* | uclinux-gnu* | kfreebsd*-gnu* | \
   knetbsd*-gnu* | netbsd*-gnu* | netbsd*-eabi* | \
   kopensolaris*-gnu* | \
-  storm-chaos* | os2-emx* | rtmk-nova* | elf-cheri*)
+  storm-chaos* | os2-emx* | rtmk-nova* | elf-cheri* | elf-purecap)
     os=-$maybe_os
     basic_machine=`echo $1 | sed 's/^\(.*\)-\([^-]*-[^-]*\)$/\1/'`
     ;;
@@ -276,7 +276,7 @@ case $basic_machine in
 	| maxq | mb | microblaze | microblazeel | mcore | mep | metag \
 	| mips | mipsbe | mipseb | mipsel | mipsle \
 	| mips16 \
-	| mips64 | mips64el | cheri \
+	| mips64 | mips64el | cheri | mips64c128 | mips64c256 \
 	| mips64octeon | mips64octeonel \
 	| mips64orion | mips64orionel \
 	| mips64r5900 | mips64r5900el \
@@ -402,7 +402,7 @@ case $basic_machine in
 	| microblaze-* | microblazeel-* \
 	| mips-* | mipsbe-* | mipseb-* | mipsel-* | mipsle-* \
 	| mips16-* \
-	| mips64-* | mips64el-* | cheri-* \
+	| mips64-* | mips64el-* | cheri-* | mips64c128-* | mips64c256-* \
 	| mips64octeon-* | mips64octeonel-* \
 	| mips64orion-* | mips64orionel-* \
 	| mips64r5900-* | mips64r5900el-* \

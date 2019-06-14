@@ -564,6 +564,7 @@ PACKAGE_URL=''
 ac_unique_file="memset.S"
 ac_subst_vars='LTLIBOBJS
 LIBOBJS
+CFLAGS
 sys_dir
 machine_dir
 libm_machine_dir

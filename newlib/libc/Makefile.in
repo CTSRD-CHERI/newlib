@@ -1035,7 +1035,7 @@ uninstall-am: uninstall-dvi-am uninstall-html-am uninstall-info-am \
 @USE_LIBTOOL_FALSE@	 for i in $(SUBLIBS); do \
 @USE_LIBTOOL_FALSE@	   $(AR) x ../$$i; \
 @USE_LIBTOOL_FALSE@	 done; \
-@USE_LIBTOOL_FALSE@	$(AR) $(AR_FLAGS) ../$@ *.o
+@USE_LIBTOOL_FALSE@	$(AR) $(ARFLAGS) ../$@ *.o
 @USE_LIBTOOL_FALSE@	$(RANLIB) $@
 @USE_LIBTOOL_FALSE@	rm -rf tmp
 

@@ -12103,7 +12103,7 @@ if { ac_try='${CC} $CFLAGS $CPPFLAGS -c conftest.c 1>&5'
   $as_echo "$as_me:${as_lineno-$LINENO}: \$? = $ac_status" >&5
   test $ac_status = 0; }; }
 then
-  acnewlib_cv_type_long_double=yes
+  acnewlib_cv_type_long_double=no
 else
   acnewlib_cv_type_long_double=no
 fi

@@ -70,8 +70,6 @@ ARFLAGS = cru
 lib_a_AR = $(AR) $(ARFLAGS)
 lib_a_LIBADD =
 am_lib_a_OBJECTS = \
-	lib_a-strlen.$(OBJEXT) lib_a-strcpy.$(OBJEXT) \
-	lib_a-setjmp.$(OBJEXT) \
 	lib_a-ieeefp.$(OBJEXT) lib_a-ffs.$(OBJEXT)
 lib_a_OBJECTS = $(am_lib_a_OBJECTS)
 DEFAULT_INCLUDES = -I.@am__isrc@
@@ -199,8 +197,8 @@ AUTOMAKE_OPTIONS = cygnus
 INCLUDES = $(NEWLIB_CFLAGS) $(CROSS_CFLAGS) $(TARGET_CFLAGS)
 AM_CCASFLAGS = $(INCLUDES)
 noinst_LIBRARIES = lib.a
-lib_a_SOURCES = strlen.c \
-	strcpy.c setjmp.S ieeefp.c ffs.c
+lib_a_SOURCES = \
+	ieeefp.c ffs.c
 lib_a_CCASFLAGS = $(AM_CCASFLAGS)
 lib_a_CFLAGS = $(AM_CFLAGS)
 ACLOCAL_AMFLAGS = -I ../../.. -I ../../../..
@@ -263,29 +261,11 @@ distclean-compile:
 .S.obj:
 	$(CPPASCOMPILE) -c -o $@ `$(CYGPATH_W) '$<'`
 
-lib_a-setjmp.o: setjmp.S
-	$(CCAS) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CCASFLAGS) $(CCASFLAGS) -c -o lib_a-setjmp.o `test -f 'setjmp.S' || echo '$(srcdir)/'`setjmp.S
-
-lib_a-setjmp.obj: setjmp.S
-	$(CCAS) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CCASFLAGS) $(CCASFLAGS) -c -o lib_a-setjmp.obj `if test -f 'setjmp.S'; then $(CYGPATH_W) 'setjmp.S'; else $(CYGPATH_W) '$(srcdir)/setjmp.S'; fi`
-
 .c.o:
 	$(COMPILE) -c $<
 
 .c.obj:
 	$(COMPILE) -c `$(CYGPATH_W) '$<'`
-
-lib_a-strlen.o: strlen.c
-	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-strlen.o `test -f 'strlen.c' || echo '$(srcdir)/'`strlen.c
-
-lib_a-strlen.obj: strlen.c
-	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-strlen.obj `if test -f 'strlen.c'; then $(CYGPATH_W) 'strlen.c'; else $(CYGPATH_W) '$(srcdir)/strlen.c'; fi`
-
-lib_a-strcpy.o: strcpy.c
-	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-strcpy.o `test -f 'strcpy.c' || echo '$(srcdir)/'`strcpy.c
-
-lib_a-strcpy.obj: strcpy.c
-	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-strcpy.obj `if test -f 'strcpy.c'; then $(CYGPATH_W) 'strcpy.c'; else $(CYGPATH_W) '$(srcdir)/strcpy.c'; fi`
 
 lib_a-ieeefp.o: ieeefp.c
 	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-ieeefp.o `test -f 'ieeefp.c' || echo '$(srcdir)/'`ieeefp.c

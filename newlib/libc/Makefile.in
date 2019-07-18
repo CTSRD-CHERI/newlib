@@ -84,7 +84,6 @@ am__DEPENDENCIES_1 =
 @ENABLE_NEWLIB_ICONV_TRUE@	iconv/lib/lib.$(aext)
 @USE_LIBTOOL_FALSE@am__DEPENDENCIES_3 = argz/lib.$(aext) \
 @USE_LIBTOOL_FALSE@	stdlib/lib.$(aext) ctype/lib.$(aext) \
-@USE_LIBTOOL_FALSE@	search/lib.$(aext) $(am__DEPENDENCIES_1) \
 @USE_LIBTOOL_FALSE@	$(am__DEPENDENCIES_1) $(am__DEPENDENCIES_1) \
 @USE_LIBTOOL_FALSE@	string/lib.$(aext) $(am__DEPENDENCIES_1) \
 @USE_LIBTOOL_FALSE@	time/lib.$(aext) locale/lib.$(aext) \
@@ -97,7 +96,6 @@ am__DEPENDENCIES_1 =
 @USE_LIBTOOL_TRUE@am__DEPENDENCIES_3 = argz/libargz.$(aext) \
 @USE_LIBTOOL_TRUE@	stdlib/libstdlib.$(aext) \
 @USE_LIBTOOL_TRUE@	ctype/libctype.$(aext) \
-@USE_LIBTOOL_TRUE@	search/libsearch.$(aext) \
 @USE_LIBTOOL_TRUE@	$(am__DEPENDENCIES_1) $(am__DEPENDENCIES_1) \
 @USE_LIBTOOL_TRUE@	$(am__DEPENDENCIES_1) \
 @USE_LIBTOOL_TRUE@	string/libstring.$(aext) \
@@ -190,7 +188,7 @@ AM_RECURSIVE_TARGETS = $(RECURSIVE_TARGETS:-recursive=) \
 	$(RECURSIVE_CLEAN_TARGETS:-recursive=) tags TAGS ctags CTAGS
 ETAGS = etags
 CTAGS = ctags
-DIST_SUBDIRS = argz stdlib ctype search stdio stdio64 string signal \
+DIST_SUBDIRS = argz stdlib ctype stdio stdio64 string signal \
 	time locale sys reent @extra_dir@ errno misc machine unix \
 	posix syscalls iconv xdr ssp .
 ACLOCAL = @ACLOCAL@
@@ -352,7 +350,7 @@ AUTOMAKE_OPTIONS = cygnus
 
 # The order of SUBDIRS is important for the integrated documentation.
 # Do not change the order without considering the doc impact.
-SUBDIRS = argz stdlib ctype search $(STDIO_SUBDIR) $(STDIO64_SUBDIR) string $(SIGNAL_SUBDIR) time locale sys reent \
+SUBDIRS = argz stdlib ctype $(STDIO_SUBDIR) $(STDIO64_SUBDIR) string $(SIGNAL_SUBDIR) time locale sys reent \
 	$(extra_dir) errno misc machine $(UNIX_SUBDIR) $(POSIX_SUBDIR) $(SYSCALLS_SUBDIR) $(NEWLIB_ICONV_DIRS) \
 	$(XDR_SUBDIR) ssp .
 
@@ -362,7 +360,6 @@ noinst_DATA = $(CRT0)
 @USE_LIBTOOL_FALSE@	argz/lib.$(aext) \
 @USE_LIBTOOL_FALSE@	stdlib/lib.$(aext) \
 @USE_LIBTOOL_FALSE@	ctype/lib.$(aext) \
-@USE_LIBTOOL_FALSE@	search/lib.$(aext) \
 @USE_LIBTOOL_FALSE@	$(LIBC_STDIO_LIB) \
 @USE_LIBTOOL_FALSE@	$(LIBC_STDIO64_LIB) \
 @USE_LIBTOOL_FALSE@	$(LIBC_XDR_LIB) \
@@ -386,7 +383,6 @@ noinst_DATA = $(CRT0)
 @USE_LIBTOOL_TRUE@	argz/libargz.$(aext) \
 @USE_LIBTOOL_TRUE@	stdlib/libstdlib.$(aext) \
 @USE_LIBTOOL_TRUE@	ctype/libctype.$(aext) \
-@USE_LIBTOOL_TRUE@	search/libsearch.$(aext) \
 @USE_LIBTOOL_TRUE@	$(LIBC_STDIO_LIB) \
 @USE_LIBTOOL_TRUE@	$(LIBC_STDIO64_LIB) \
 @USE_LIBTOOL_TRUE@	$(LIBC_XDR_LIB) \

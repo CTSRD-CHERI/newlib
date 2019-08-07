@@ -53,7 +53,7 @@ strlen (const char *str)
 {
   const char *start = str;
 
-#if !defined(PREFER_SIZE_OVER_SPEED) && !defined(__OPTIMIZE_SIZE__)
+#if !defined(PREFER_SIZE_OVER_SPEED) && !defined(__OPTIMIZE_SIZE__) && !defined(__CHERI_PURE_CAPABILITY__)
   unsigned long *aligned_addr;
 
   /* Align the pointer, so we can search a word at a time.  */

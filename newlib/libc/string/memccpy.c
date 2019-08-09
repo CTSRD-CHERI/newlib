@@ -34,8 +34,10 @@ PORTABILITY
 
 #ifdef __CHERI__
 typedef __intcap_t BLOCK_TYPE;
+typedef __uintcap_t UBLOCK_TYPE;
 #else
 typedef long BLOCK_TYPE;
+typedef unsigned long UBLOCK_TYPE;
 #endif
 
 /* Nonzero if either X or Y is not aligned on a "BLOCK_TYPE" boundary.  */
@@ -98,7 +100,7 @@ memccpy (void *__restrict dst0,
     {
       unsigned int i;
 #ifndef __CHERI__
-      unsigned BLOCK_TYPE mask = 0;
+      UBLOCK_TYPE mask = 0;
 #endif
 
       aligned_dst = (BLOCK_TYPE*)dst;
@@ -130,7 +132,7 @@ memccpy (void *__restrict dst0,
           *aligned_dst++ = *aligned_src++;
           len0 -= LITTLEBLOCKSIZE;
 #else
-          unsigned BLOCK_TYPE buffer = (unsigned BLOCK_TYPE)(*aligned_src);
+          UBLOCK_TYPE buffer = (UBLOCK_TYPE)(*aligned_src);
           buffer ^=  mask;
           if (DETECTNULL (buffer))
             break; /* endchar is found, go byte by byte from here */

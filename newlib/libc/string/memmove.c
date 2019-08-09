@@ -51,7 +51,11 @@ typedef long BLOCK_TYPE;
 #define LITTLEBLOCKSIZE (sizeof (BLOCK_TYPE))
 
 /* Threshhold for punting to the byte copier.  */
+#ifdef __CHERI__
+#define TOO_SMALL(LEN)  ((LEN) < LITTLEBLOCKSIZE)
+#else
 #define TOO_SMALL(LEN)  ((LEN) < BIGBLOCKSIZE)
+#endif
 
 /*SUPPRESS 20*/
 void *

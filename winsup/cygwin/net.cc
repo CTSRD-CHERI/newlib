@@ -61,7 +61,7 @@ get (const int fd)
   cygheap_fdget cfd (fd);
 
   if (cfd < 0)
-    return 0;
+    return NULL;
 
   fhandler_socket *const fh = cfd->is_socket ();
 
@@ -177,6 +177,9 @@ static const errmap_t wsock_errmap[] = {
   {WSAEREMOTE, "WSAEREMOTE", EREMOTE},
   {WSAEINVAL, "WSAEINVAL", EINVAL},
   {WSAEFAULT, "WSAEFAULT", EFAULT},
+  {WSAEBADF, "WSAEBADF", EBADF},
+  {WSAEACCES, "WSAEACCES", EACCES},
+  {WSAEMFILE, "WSAEMFILE", EMFILE},
   {0, "NOERROR", 0},
   {0, NULL, 0}
 };
@@ -188,7 +191,7 @@ find_winsock_errno (DWORD why)
     if (why == wsock_errmap[i].w)
       return wsock_errmap[i].e;
 
-  return EPERM;
+  return EACCES;
 }
 
 void
@@ -500,8 +503,12 @@ cygwin_socket (int af, int type, int protocol)
   switch (af)
     {
     case AF_LOCAL:
+#ifndef __WITH_AF_UNIX
+      dev = af_local_dev;
+#else
     case AF_UNIX:
       dev = (af == AF_LOCAL) ? af_local_dev : af_unix_dev;
+#endif /* __WITH_AF_UNIX */
       break;
     case AF_INET:
     case AF_INET6:
@@ -532,10 +539,7 @@ cygwin_socket (int af, int type, int protocol)
 	  res = fd;
 	}
       else
-	{
-	  delete fh;
-	  fd.release ();
-	}
+	delete fh;
     }
 
 done:
@@ -709,30 +713,24 @@ cygwin_getservbyport (int port, const char *proto)
 extern "C" int
 cygwin_gethostname (char *name, size_t len)
 {
-  int res = -1;
-
   __try
     {
-      if (gethostname (name, len))
-	{
-	  DWORD local_len = len;
+      PFIXED_INFO info = NULL;
+      ULONG size = 0;
 
-	  if (!GetComputerNameExA (ComputerNameDnsFullyQualified, name,
-				   &local_len))
-	    {
-	      if (GetLastError () == ERROR_MORE_DATA)
-		set_errno (ENAMETOOLONG);
-	      else
-		set_winsock_errno ();
-	      __leave;
-	    }
+      if (GetNetworkParams(info, &size) == ERROR_BUFFER_OVERFLOW
+	  && (info = (PFIXED_INFO) alloca(size))
+	  && GetNetworkParams(info, &size) == ERROR_SUCCESS)
+	{
+	  strncpy(name, info->HostName, len);
+	  debug_printf ("gethostname %s", name);
+	  return 0;
 	}
-      debug_printf ("name %s", name);
-      res = 0;
+      __seterrno ();
     }
-  __except (EFAULT) {}
+  __except (EFAULT)
   __endtry
-  return res;
+  return -1;
 }
 
 extern "C" int
@@ -747,6 +745,30 @@ sethostname (const char *name, size_t len)
       return -1;
     }
   return 0;
+}
+
+/* getdomainname: 4.4BSD */
+extern "C" int
+getdomainname (char *domain, size_t len)
+{
+  __try
+    {
+      PFIXED_INFO info = NULL;
+      ULONG size = 0;
+
+      if (GetNetworkParams(info, &size) == ERROR_BUFFER_OVERFLOW
+	  && (info = (PFIXED_INFO) alloca(size))
+	  && GetNetworkParams(info, &size) == ERROR_SUCCESS)
+	{
+	  strncpy(domain, info->DomainName, len);
+	  debug_printf ("gethostname %s", domain);
+	  return 0;
+	}
+      __seterrno ();
+    }
+  __except (EFAULT)
+  __endtry
+  return -1;
 }
 
 /* exported as gethostbyname: POSIX.1-2001 */
@@ -1403,29 +1425,6 @@ cygwin_send (int fd, const void *buf, size_t len, int flags)
   __endtry
   syscall_printf ("%lR = send(%d, %p, %ld, %y)", res, fd, buf, len, flags);
   return res;
-}
-
-/* getdomainname: 4.4BSD */
-extern "C" int
-getdomainname (char *domain, size_t len)
-{
-  __try
-    {
-      PFIXED_INFO info = NULL;
-      ULONG size = 0;
-
-      if (GetNetworkParams(info, &size) == ERROR_BUFFER_OVERFLOW
-	  && (info = (PFIXED_INFO) alloca(size))
-	  && GetNetworkParams(info, &size) == ERROR_SUCCESS)
-	{
-	  strncpy(domain, info->DomainName, len);
-	  return 0;
-	}
-      __seterrno ();
-    }
-  __except (EFAULT)
-  __endtry
-  return -1;
 }
 
 /* Fill out an ifconf struct. */
@@ -2285,8 +2284,12 @@ socketpair (int af, int type, int protocol, int sv[2])
   switch (af)
     {
     case AF_LOCAL:
+#ifndef __WITH_AF_UNIX
+      dev = af_local_dev;
+#else
     case AF_UNIX:
       dev = (af == AF_LOCAL) ? af_local_dev : af_unix_dev;
+#endif /* __WITH_AF_UNIX */
       break;
     default:
       set_errno (EAFNOSUPPORT);
@@ -2306,10 +2309,7 @@ socketpair (int af, int type, int protocol, int sv[2])
 
       cygheap_fdnew fd_out (fd_in, false);
       if (fd_out < 0)
-	{
-	  fd_in.release ();
-	  goto done;
-	}
+	goto done;
 
       fh_in = reinterpret_cast<fhandler_socket *> (build_fh_dev (*dev));
       fh_out = reinterpret_cast<fhandler_socket *> (build_fh_dev (*dev));
@@ -2335,8 +2335,6 @@ socketpair (int af, int type, int protocol, int sv[2])
 	{
 	  delete fh_in;
 	  delete fh_out;
-	  fd_in.release ();
-	  fd_out.release ();
 	}
     }
 

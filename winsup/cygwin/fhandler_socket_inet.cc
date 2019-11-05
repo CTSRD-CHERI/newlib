@@ -518,14 +518,14 @@ fhandler_socket_wsock::fixup_after_fork (HANDLE parent)
   if (new_sock == INVALID_SOCKET)
     {
       set_winsock_errno ();
-      set_io_handle ((HANDLE) INVALID_SOCKET);
+      set_handle ((HANDLE) INVALID_SOCKET);
     }
   else
     {
       /* Even though the original socket was not inheritable, the duplicated
 	 socket is potentially inheritable again. */
       SetHandleInformation ((HANDLE) new_sock, HANDLE_FLAG_INHERIT, 0);
-      set_io_handle ((HANDLE) new_sock);
+      set_handle ((HANDLE) new_sock);
       debug_printf ("WSASocket succeeded (%p)", new_sock);
     }
 }
@@ -571,13 +571,13 @@ fhandler_socket_wsock::dup (fhandler_base *child, int flags)
 
   cygheap->user.deimpersonate ();
   fhs->init_fixup_before ();
-  fhs->set_io_handle (get_io_handle ());
+  fhs->set_handle (get_handle ());
   int ret = fhs->fixup_before_fork_exec (GetCurrentProcessId ());
   cygheap->user.reimpersonate ();
   if (!ret)
     {
       fhs->fixup_after_fork (GetCurrentProcess ());
-      if (fhs->get_io_handle() != (HANDLE) INVALID_SOCKET)
+      if (fhs->get_handle() != (HANDLE) INVALID_SOCKET)
 	return 0;
     }
   cygheap->fdtab.dec_need_fixup_before ();
@@ -592,6 +592,7 @@ fhandler_socket_wsock::set_socket_handle (SOCKET sock, int af, int type,
 {
   DWORD hdl_flags;
   bool lsp_fixup = false;
+  int file_flags = O_RDWR | O_BINARY;
 
   /* Usually sockets are inheritable IFS objects.  Unfortunately some virus
      scanners or other network-oriented software replace normal sockets
@@ -644,18 +645,21 @@ fhandler_socket_wsock::set_socket_handle (SOCKET sock, int af, int type,
             }
         }
     }
+  set_handle ((HANDLE) sock);
   set_addr_family (af);
   set_socket_type (type);
-  if (flags & SOCK_NONBLOCK)
-    set_nonblocking (true);
-  if (flags & SOCK_CLOEXEC)
-    set_close_on_exec (true);
-  set_io_handle ((HANDLE) sock);
   if (!init_events ())
     return -1;
+  if (flags & SOCK_NONBLOCK)
+    file_flags |= O_NONBLOCK;
+  if (flags & SOCK_CLOEXEC)
+    {
+      set_close_on_exec (true);
+      file_flags |= O_CLOEXEC;
+    }
+  set_flags (file_flags);
   if (lsp_fixup)
     init_fixup_before ();
-  set_flags (O_RDWR | O_BINARY);
   set_unique_id ();
   if (get_socket_type () == SOCK_DGRAM)
     {
@@ -685,7 +689,8 @@ fhandler_socket_wsock::set_socket_handle (SOCKET sock, int af, int type,
 }
 
 fhandler_socket_inet::fhandler_socket_inet () :
-  fhandler_socket_wsock ()
+  fhandler_socket_wsock (),
+  oobinline (false)
 {
 }
 
@@ -897,7 +902,7 @@ fhandler_socket_inet::accept4 (struct sockaddr *peer, int *len, int flags)
 		}
 	    }
 	  else
-	    fd.release ();
+	    delete sock;
 	}
       if (ret == -1)
 	::closesocket (res);
@@ -1044,10 +1049,11 @@ fhandler_socket_inet::recv_internal (LPWSAMSG wsamsg, bool use_recvmsg)
 {
   ssize_t res = 0;
   DWORD ret = 0, wret;
-  int evt_mask = FD_READ | ((wsamsg->dwFlags & MSG_OOB) ? FD_OOB : 0);
+  int evt_mask = (wsamsg->dwFlags & MSG_OOB) ? FD_OOB : FD_READ;
   LPWSABUF &wsabuf = wsamsg->lpBuffers;
   ULONG &wsacnt = wsamsg->dwBufferCount;
   static NO_COPY LPFN_WSARECVMSG WSARecvMsg;
+  bool read_oob = false;
 
   /* CV 2014-10-26: Do not check for the connect_state at this point.  In
      certain scenarios there's no way to check the connect state reliably.
@@ -1086,12 +1092,64 @@ fhandler_socket_inet::recv_internal (LPWSAMSG wsamsg, bool use_recvmsg)
 	waitall = false;
     }
 
+  /* recv() returns EINVAL if MSG_OOB flag is set in inline mode. */
+  if (oobinline && (wsamsg->dwFlags & MSG_OOB))
+    {
+      set_errno (EINVAL);
+      return SOCKET_ERROR;
+    }
+
+  /* Check whether OOB data is ready or not */
+  if (get_socket_type () == SOCK_STREAM)
+    if ((wsamsg->dwFlags & MSG_OOB) || oobinline)
+      {
+	u_long atmark = 0;
+#ifdef __x86_64__
+	/* SIOCATMARK = _IOR('s',7,u_long) */
+	int err = ::ioctlsocket (get_socket (), _IOR('s',7,u_long), &atmark);
+#else
+	int err = ::ioctlsocket (get_socket (), SIOCATMARK, &atmark);
+#endif
+	if (err)
+	  {
+	    set_winsock_errno ();
+	    return SOCKET_ERROR;
+	  }
+	/* If there is no OOB data, recv() with MSG_OOB returns EINVAL.
+	   Note: The return value of SIOCATMARK in non-inline mode of
+	   winsock is FALSE if OOB data exists, TRUE otherwise. */
+	if (atmark && (wsamsg->dwFlags & MSG_OOB))
+	  {
+	    /* No OOB data */
+	    set_errno (EINVAL);
+	    return SOCKET_ERROR;
+	  }
+	/* Inline mode for out-of-band (OOB) data of winsock is
+	   completely broken. That is, SIOCATMARK always returns
+	   TRUE in inline mode. Due to this problem, application
+	   cannot determine OOB data at all. Therefore the behavior
+	   of a socket with SO_OOBINLINE set is simulated using
+	   a socket with SO_OOBINLINE not set. In this fake inline
+	   mode, the order of the OOB and non-OOB data is not
+	   preserved. OOB data is read before non-OOB data sent
+	   prior to the OOB data.  However, this most likely is
+	   not a problem in most cases. */
+	/* If there is OOB data, read OOB data using MSG_OOB in
+	   fake inline mode. */
+	if (!atmark && oobinline)
+	  {
+	    read_oob = true;
+	    evt_mask = FD_OOB;
+	  }
+      }
+
   /* Note: Don't call WSARecvFrom(MSG_PEEK) without actually having data
      waiting in the buffers, otherwise the event handling gets messed up
      for some reason. */
   while (!(res = wait_for_events (evt_mask | FD_CLOSE, wait_flags))
 	 || saw_shutdown_read ())
     {
+      DWORD dwFlags = wsamsg->dwFlags | (read_oob ? MSG_OOB : 0);
       if (use_recvmsg)
 	res = WSARecvMsg (get_socket (), wsamsg, &wret, NULL, NULL);
       /* This is working around a really weird problem in WinSock.
@@ -1113,11 +1171,11 @@ fhandler_socket_inet::recv_internal (LPWSAMSG wsamsg, bool use_recvmsg)
 	 namelen is a valid pointer while name is NULL.  Both parameters are
 	 ignored for TCP sockets, so this only occurs when using UDP socket. */
       else if (!wsamsg->name || get_socket_type () == SOCK_STREAM)
-	res = WSARecv (get_socket (), wsabuf, wsacnt, &wret, &wsamsg->dwFlags,
+	res = WSARecv (get_socket (), wsabuf, wsacnt, &wret, &dwFlags,
 		       NULL, NULL);
       else
 	res = WSARecvFrom (get_socket (), wsabuf, wsacnt, &wret,
-			   &wsamsg->dwFlags, wsamsg->name, &wsamsg->namelen,
+			   &dwFlags, wsamsg->name, &wsamsg->namelen,
 			   NULL, NULL);
       if (!res)
 	{
@@ -1292,6 +1350,13 @@ fhandler_socket_wsock::send_internal (struct _WSAMSG *wsamsg, int flags)
   bool use_sendmsg = false;
   DWORD wait_flags = flags & MSG_DONTWAIT;
   bool nosignal = !!(flags & MSG_NOSIGNAL);
+
+  /* MSG_EOR not supported by any protocol */
+  if (flags & MSG_EOR)
+    {
+      set_errno (EOPNOTSUPP);
+      return SOCKET_ERROR;
+    }
 
   flags &= (MSG_OOB | MSG_DONTROUTE);
   if (wsamsg->Control.len > 0)
@@ -1561,6 +1626,23 @@ fhandler_socket_inet::setsockopt (int level, int optname, const void *optval,
 	    set_errno (EDOM);
 	  return ret;
 
+	case SO_OOBINLINE:
+	  /* Inline mode for out-of-band (OOB) data of winsock is
+	     completely broken. That is, SIOCATMARK always returns
+	     TRUE in inline mode. Due to this problem, application
+	     cannot determine OOB data at all. Therefore the behavior
+	     of a socket with SO_OOBINLINE set is simulated using
+	     a socket with SO_OOBINLINE not set. In this fake inline
+	     mode, the order of the OOB and non-OOB data is not
+	     preserved. OOB data is read before non-OOB data sent
+	     prior to the OOB data.  However, this most likely is
+	     not a problem in most cases. */
+	  /* Here, instead of actually setting inline mode, simply
+	     set the variable oobinline. */
+	  oobinline = *(int *) optval ? true : false;
+	  ignore = true;
+	  break;
+
 	default:
 	  break;
 	}
@@ -1713,6 +1795,10 @@ fhandler_socket_inet::getsockopt (int level, int optname, const void *optval,
 	    return 0;
 	  }
 
+	case SO_OOBINLINE:
+	  *(int *) optval = oobinline ? 1 : 0;
+	  return 0;
+
 	default:
 	  break;
 	}
@@ -1850,6 +1936,17 @@ fhandler_socket_wsock::ioctl (unsigned int cmd, void *p)
 	}
       else
 	res = ::ioctlsocket (get_socket (), cmd, (u_long *) p);
+      /* In winsock, the return value of SIOCATMARK is FALSE if
+	 OOB data exists, TRUE otherwise. This is almost opposite
+	 to expectation. */
+#ifdef __x86_64__
+      /* SIOCATMARK = _IOR('s',7,u_long) */
+      if (cmd == _IOR('s',7,u_long) && !res)
+	*(u_long *)p = !*(u_long *)p;
+#else
+      if (cmd == SIOCATMARK && !res)
+	*(u_long *)p = !*(u_long *)p;
+#endif
       break;
     default:
       res = fhandler_socket::ioctl (cmd, p);

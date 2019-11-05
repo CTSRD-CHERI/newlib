@@ -185,6 +185,7 @@ extern "C" void error_start_init (const char*);
 extern "C" int try_to_debug (bool waitloop = 1);
 
 void ld_preload ();
+void fixup_hooks_after_fork ();
 const char *find_first_notloaded_dll (class path_conv &);
 
 /**************************** Miscellaneous ******************************/
@@ -198,6 +199,7 @@ ino_t __reg2 hash_path_name (ino_t hash, const char *name);
 void __reg2 nofinalslash (const char *src, char *dst);
 
 void __reg3 *hook_or_detect_cygwin (const char *, const void *, WORD&, HANDLE h = NULL);
+void __reg3 *hook_api (const char *mname, const char *name, const void *fn);
 
 /* Time related */
 void __stdcall totimeval (struct timeval *, PLARGE_INTEGER, int, int);
@@ -214,6 +216,9 @@ void init_console_handler (bool);
 
 extern bool wsock_started;
 
+/* PTY related */
+void set_ishybrid_and_switch_to_pcon (HANDLE h);
+
 /* Printf type functions */
 extern "C" void vapi_fatal (const char *, va_list ap) __attribute__ ((noreturn));
 extern "C" void api_fatal (const char *, ...) __attribute__ ((noreturn));
@@ -223,7 +228,7 @@ int __small_swprintf (PWCHAR dst, const WCHAR *fmt, ...);
 int __small_vswprintf (PWCHAR dst, const WCHAR *fmt, va_list ap);
 void multiple_cygwin_problem (const char *, uintptr_t, uintptr_t);
 
-bool child_copy (HANDLE, bool, ...);
+bool child_copy (HANDLE, bool, bool, ...);
 
 class path_conv;
 

@@ -21,7 +21,7 @@
 #undef u_long
 #define u_long __ms_u_long
 #endif
-#include <w32api/ntsecapi.h>
+#include "ntsecapi.h"
 #include <w32api/ws2tcpip.h>
 #include <w32api/mswsock.h>
 #include <unistd.h>
@@ -68,7 +68,7 @@ adjust_socket_file_mode (mode_t mode)
 }
 
 /* cygwin internal: map sockaddr into internet domain address */
-static int
+int
 get_inet_addr_local (const struct sockaddr *in, int inlen,
 	       struct sockaddr_storage *out, int *outlen,
 	       int *type = NULL, int *secret = NULL)
@@ -988,7 +988,6 @@ fhandler_socket_local::accept4 (struct sockaddr *peer, int *len, int flags)
 		  ret = sock->af_local_accept ();
 		  if (ret == -1)
 		    {
-		      fd.release ();
 		      delete sock;
 		      set_winsock_errno ();
 		      return -1;
@@ -1013,7 +1012,7 @@ fhandler_socket_local::accept4 (struct sockaddr *peer, int *len, int flags)
 		}
 	    }
 	  else
-	    fd.release ();
+	    delete sock;
 	}
       if (ret == -1)
 	::closesocket (res);
@@ -1065,7 +1064,7 @@ fhandler_socket_local::recv_internal (LPWSAMSG wsamsg, bool use_recvmsg)
 {
   ssize_t res = 0;
   DWORD ret = 0, wret;
-  int evt_mask = FD_READ | ((wsamsg->dwFlags & MSG_OOB) ? FD_OOB : 0);
+  int evt_mask = FD_READ;
   LPWSABUF &wsabuf = wsamsg->lpBuffers;
   ULONG &wsacnt = wsamsg->dwBufferCount;
   static NO_COPY LPFN_WSARECVMSG WSARecvMsg;
@@ -1080,7 +1079,15 @@ fhandler_socket_local::recv_internal (LPWSAMSG wsamsg, bool use_recvmsg)
 
   DWORD wait_flags = wsamsg->dwFlags;
   bool waitall = !!(wait_flags & MSG_WAITALL);
-  wsamsg->dwFlags &= (MSG_OOB | MSG_PEEK | MSG_DONTROUTE);
+
+  /* Out-of-band data not supported by AF_LOCAL */
+  if (wsamsg->dwFlags & MSG_OOB)
+    {
+      set_errno (EOPNOTSUPP);
+      return SOCKET_ERROR;
+    }
+
+  wsamsg->dwFlags &= (MSG_PEEK | MSG_DONTROUTE);
   if (use_recvmsg)
     {
       if (!WSARecvMsg
@@ -1104,7 +1111,7 @@ fhandler_socket_local::recv_internal (LPWSAMSG wsamsg, bool use_recvmsg)
 	  set_winsock_errno ();
 	  return SOCKET_ERROR;
 	}
-      if (is_nonblocking () || (wsamsg->dwFlags & (MSG_OOB | MSG_PEEK)))
+      if (is_nonblocking () || (wsamsg->dwFlags & MSG_PEEK))
 	waitall = false;
     }
 
@@ -1114,6 +1121,7 @@ fhandler_socket_local::recv_internal (LPWSAMSG wsamsg, bool use_recvmsg)
   while (!(res = wait_for_events (evt_mask | FD_CLOSE, wait_flags))
 	 || saw_shutdown_read ())
     {
+      DWORD dwFlags = wsamsg->dwFlags;
       if (use_recvmsg)
 	res = WSARecvMsg (get_socket (), wsamsg, &wret, NULL, NULL);
       /* This is working around a really weird problem in WinSock.
@@ -1135,11 +1143,11 @@ fhandler_socket_local::recv_internal (LPWSAMSG wsamsg, bool use_recvmsg)
 	 namelen is a valid pointer while name is NULL.  Both parameters are
 	 ignored for TCP sockets, so this only occurs when using UDP socket. */
       else if (!wsamsg->name || get_socket_type () == SOCK_STREAM)
-	res = WSARecv (get_socket (), wsabuf, wsacnt, &wret, &wsamsg->dwFlags,
+	res = WSARecv (get_socket (), wsabuf, wsacnt, &wret, &dwFlags,
 		       NULL, NULL);
       else
 	res = WSARecvFrom (get_socket (), wsabuf, wsacnt, &wret,
-			   &wsamsg->dwFlags, wsamsg->name, &wsamsg->namelen,
+			   &dwFlags, wsamsg->name, &wsamsg->namelen,
 			   NULL, NULL);
       if (!res)
 	{
@@ -1236,6 +1244,13 @@ fhandler_socket_local::sendto (const void *in_ptr, size_t len, int flags,
   char *ptr = (char *) in_ptr;
   struct sockaddr_storage sst;
 
+  /* Out-of-band data not supported by AF_LOCAL */
+  if (flags & MSG_OOB)
+    {
+      set_errno (EOPNOTSUPP);
+      return SOCKET_ERROR;
+    }
+
   if (to && get_inet_addr_local (to, tolen, &sst, &tolen) == SOCKET_ERROR)
     return SOCKET_ERROR;
 
@@ -1273,6 +1288,13 @@ fhandler_socket_local::sendmsg (const struct msghdr *msg, int flags)
 
   struct sockaddr_storage sst;
   int len = 0;
+
+  /* Out-of-band data not supported by AF_LOCAL */
+  if (flags & MSG_OOB)
+    {
+      set_errno (EOPNOTSUPP);
+      return SOCKET_ERROR;
+    }
 
   if (msg->msg_name
       && get_inet_addr_local ((struct sockaddr *) msg->msg_name,

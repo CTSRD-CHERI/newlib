@@ -363,9 +363,9 @@ _BEGIN_STD_C
 #define _JBTYPE __uintcap_t
 /* Same number of GPCRs as GPRs below, plus DDC.  */
 #ifdef __riscv_32e
-#define _JBLEN ((5*sizeof(__uintcap_t) + sizeof(_JBTYE) - 1)/sizeof(_JBTYE))
+#define _JBLEN ((5*sizeof(__uintcap_t) + sizeof(_JBTYPE) - 1)/sizeof(_JBTYPE))
 #else
-#define _JBLEN ((15*sizeof(__uintcap_t) + 12*sizeof(double) + sizeof(_JBTYE) - 1)/sizeof(_JBTYE))
+#define _JBLEN ((15*sizeof(__uintcap_t) + 12*sizeof(double) + sizeof(_JBTYPE) - 1)/sizeof(_JBTYPE))
 #endif
 #else
 /* _JBTYPE using long long to make sure the alignment is align to 8 byte,

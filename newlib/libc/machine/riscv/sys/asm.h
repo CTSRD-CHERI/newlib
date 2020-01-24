@@ -13,37 +13,71 @@
 #define _SYS_ASM_H
 
 /*
- * Macros to handle different pointer/register sizes for 32/64-bit code
+ * Macros to handle different pointer/register sizes for 32/64-bit code, and
+ * hybrid/purecap code.
  */
-#if __riscv_xlen == 64
-# define PTRLOG 3
-# define SZREG	8
-# define REG_S sd
-# define REG_L ld
-#elif __riscv_xlen == 32
-# define PTRLOG 2
-# define SZREG	4
-# define REG_S sw
-# define REG_L lw
+#ifdef __CHERI_PURE_CAPABILITY__
+# if __riscv_xlen == 64
+#  define PTRLOG 4
+#  define SZREG	16
+# elif __riscv_xlen == 32
+#  define PTRLOG 3
+#  define SZREG	8
+# else
+#  error __riscv_xlen must equal 32 or 64
+# endif
+# define REG_S csc
+# define REG_L clc
+# define REG(reg) c##reg
+# define RET cret
 #else
-# error __riscv_xlen must equal 32 or 64
+# if __riscv_xlen == 64
+#  define PTRLOG 3
+#  define SZREG	8
+#  define REG_S sd
+#  define REG_L ld
+# elif __riscv_xlen == 32
+#  define PTRLOG 2
+#  define SZREG	4
+#  define REG_S sw
+#  define REG_L lw
+# else
+#  error __riscv_xlen must equal 32 or 64
+# endif
+# define REG(reg) reg
+# define RET ret
 #endif
 
 #ifndef __riscv_float_abi_soft
 /* For ABI uniformity, reserve 8 bytes for floats, even if double-precision
    floating-point is not supported in hardware.  */
 # define SZFREG 8
-# ifdef __riscv_float_abi_single
-#  define FREG_L flw
-#  define FREG_S fsw
-# elif defined(__riscv_float_abi_double)
-#  define FREG_L fld
-#  define FREG_S fsd
-# elif defined(__riscv_float_abi_quad)
-#  define FREG_L flq
-#  define FREG_S fsq
+# ifdef __CHERI_PURE_CAPABILITY__
+#  ifdef __riscv_float_abi_single
+#   define FREG_L cflw
+#   define FREG_S cfsw
+#  elif defined(__riscv_float_abi_double)
+#   define FREG_L cfld
+#   define FREG_S cfsd
+#  elif defined(__riscv_float_abi_quad)
+#   define FREG_L cflq
+#   define FREG_S cfsq
+#  else
+#   error unsupported FLEN
+#  endif
 # else
-#  error unsupported FLEN
+#  ifdef __riscv_float_abi_single
+#   define FREG_L flw
+#   define FREG_S fsw
+#  elif defined(__riscv_float_abi_double)
+#   define FREG_L fld
+#   define FREG_S fsd
+#  elif defined(__riscv_float_abi_quad)
+#   define FREG_L flq
+#   define FREG_S fsq
+#  else
+#   error unsupported FLEN
+#  endif
 # endif
 #endif
 

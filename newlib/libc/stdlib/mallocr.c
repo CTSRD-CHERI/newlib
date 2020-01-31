@@ -3090,7 +3090,8 @@ Void_t* mEMALIGn(RARG alignment, bytes) RDECL size_t alignment; size_t bytes;
       this is always possible.
     */
 
-    brk = (char*)mem2chunk(((unsigned long)(m + alignment - 1)) & -alignment);
+    size_t inc = alignment - ((size_t)m & (alignment-1));
+    brk = (char*)mem2chunk(m+inc);
     if ((long)(brk - (char*)(p)) < (long)MINSIZE) brk = brk + alignment;
 
     newp = (mchunkptr)brk;

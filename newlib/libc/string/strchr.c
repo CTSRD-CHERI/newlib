@@ -58,7 +58,7 @@ strchr (const char *s1,
   const unsigned char *s = (const unsigned char *)s1;
   unsigned char c = i;
 
-#if !defined(PREFER_SIZE_OVER_SPEED) && !defined(__OPTIMIZE_SIZE__)
+#if !defined(PREFER_SIZE_OVER_SPEED) && !defined(__OPTIMIZE_SIZE__) && !defined(__CHERI_PURE_CAPABILITY__)
   unsigned long mask,j;
   unsigned long *aligned_addr;
 

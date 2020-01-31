@@ -34,18 +34,28 @@ QUICKREF
 #include <limits.h>
 #include "local.h"
 
-/* Nonzero if either X or Y is not aligned on a "long" boundary.  */
+#ifdef __CHERI__
+typedef __intcap_t BLOCK_TYPE;
+#else
+typedef long BLOCK_TYPE;
+#endif
+
+/* Nonzero if either X or Y is not aligned on a "BLOCK_TYPE" boundary.  */
 #define UNALIGNED(X, Y) \
-  (((long)X & (sizeof (long) - 1)) | ((long)Y & (sizeof (long) - 1)))
+  (((long)X & (sizeof (BLOCK_TYPE) - 1)) | ((long)Y & (sizeof (BLOCK_TYPE) - 1)))
 
 /* How many bytes are copied each iteration of the 4X unrolled loop.  */
-#define BIGBLOCKSIZE    (sizeof (long) << 2)
+#define BIGBLOCKSIZE    (sizeof (BLOCK_TYPE) << 2)
 
 /* How many bytes are copied each iteration of the word copy loop.  */
-#define LITTLEBLOCKSIZE (sizeof (long))
+#define LITTLEBLOCKSIZE (sizeof (BLOCK_TYPE))
 
 /* Threshhold for punting to the byte copier.  */
+#ifdef __CHERI__
+#define TOO_SMALL(LEN)  ((LEN) < LITTLEBLOCKSIZE)
+#else
 #define TOO_SMALL(LEN)  ((LEN) < BIGBLOCKSIZE)
+#endif
 
 /*SUPPRESS 20*/
 void *
@@ -54,7 +64,7 @@ memmove (void *dst_void,
 	const void *src_void,
 	size_t length)
 {
-#if defined(PREFER_SIZE_OVER_SPEED) || defined(__OPTIMIZE_SIZE__)
+#if (defined(PREFER_SIZE_OVER_SPEED) || defined(__OPTIMIZE_SIZE__)) && !defined(__CHERI__)
   char *dst = dst_void;
   const char *src = src_void;
 
@@ -80,8 +90,8 @@ memmove (void *dst_void,
 #else
   char *dst = dst_void;
   const char *src = src_void;
-  long *aligned_dst;
-  const long *aligned_src;
+  BLOCK_TYPE *aligned_dst;
+  const BLOCK_TYPE *aligned_src;
 
   if (src < dst && dst < src + length)
     {
@@ -100,10 +110,10 @@ memmove (void *dst_void,
          then punt into the byte copy loop.  This should be rare.  */
       if (!TOO_SMALL(length) && !UNALIGNED (src, dst))
         {
-          aligned_dst = (long*)dst;
-          aligned_src = (long*)src;
+          aligned_dst = (BLOCK_TYPE*)dst;
+          aligned_src = (BLOCK_TYPE*)src;
 
-          /* Copy 4X long words at a time if possible.  */
+          /* Copy 4X BLOCK_TYPE words at a time if possible.  */
           while (length >= BIGBLOCKSIZE)
             {
               *aligned_dst++ = *aligned_src++;
@@ -113,7 +123,7 @@ memmove (void *dst_void,
               length -= BIGBLOCKSIZE;
             }
 
-          /* Copy one long word at a time if possible.  */
+          /* Copy one BLOCK_TYPE word at a time if possible.  */
           while (length >= LITTLEBLOCKSIZE)
             {
               *aligned_dst++ = *aligned_src++;

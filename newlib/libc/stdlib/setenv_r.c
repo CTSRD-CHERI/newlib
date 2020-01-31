@@ -76,7 +76,7 @@ _setenv_r (struct _reent *reent_ptr,
         }
       if (strlen (C) >= l_value)
 	{			/* old larger; copy over */
-	  while ((*C++ = *value++) != 0);
+	  while ((*C++ = *value++) != 0) {}
           ENV_UNLOCK;
 	  return 0;
 	}

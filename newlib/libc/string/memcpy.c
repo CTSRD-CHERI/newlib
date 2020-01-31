@@ -31,18 +31,28 @@ QUICKREF
 #include <string.h>
 #include "local.h"
 
-/* Nonzero if either X or Y is not aligned on a "long" boundary.  */
+#ifdef __CHERI__
+typedef __intcap_t BLOCK_TYPE;
+#else
+typedef long BLOCK_TYPE;
+#endif
+
+/* Nonzero if either X or Y is not aligned on a "BLOCK_TYPE" boundary.  */
 #define UNALIGNED(X, Y) \
-  (((long)X & (sizeof (long) - 1)) | ((long)Y & (sizeof (long) - 1)))
+  (((long)X & (sizeof (BLOCK_TYPE) - 1)) | ((long)Y & (sizeof (BLOCK_TYPE) - 1)))
 
 /* How many bytes are copied each iteration of the 4X unrolled loop.  */
-#define BIGBLOCKSIZE    (sizeof (long) << 2)
+#define BIGBLOCKSIZE    (sizeof (BLOCK_TYPE) << 2)
 
 /* How many bytes are copied each iteration of the word copy loop.  */
-#define LITTLEBLOCKSIZE (sizeof (long))
+#define LITTLEBLOCKSIZE (sizeof (BLOCK_TYPE))
 
 /* Threshhold for punting to the byte copier.  */
+#ifdef __CHERI__
+#define TOO_SMALL(LEN)  ((LEN) < LITTLEBLOCKSIZE)
+#else
 #define TOO_SMALL(LEN)  ((LEN) < BIGBLOCKSIZE)
+#endif
 
 void *
 __inhibit_loop_to_libcall
@@ -50,7 +60,7 @@ memcpy (void *__restrict dst0,
 	const void *__restrict src0,
 	size_t len0)
 {
-#if defined(PREFER_SIZE_OVER_SPEED) || defined(__OPTIMIZE_SIZE__)
+#if (defined(PREFER_SIZE_OVER_SPEED) || defined(__OPTIMIZE_SIZE__)) && !defined(__CHERI__)
   char *dst = (char *) dst0;
   char *src = (char *) src0;
 
@@ -65,17 +75,17 @@ memcpy (void *__restrict dst0,
 #else
   char *dst = dst0;
   const char *src = src0;
-  long *aligned_dst;
-  const long *aligned_src;
+  BLOCK_TYPE *aligned_dst;
+  const BLOCK_TYPE *aligned_src;
 
   /* If the size is small, or either SRC or DST is unaligned,
      then punt into the byte copy loop.  This should be rare.  */
   if (!TOO_SMALL(len0) && !UNALIGNED (src, dst))
     {
-      aligned_dst = (long*)dst;
-      aligned_src = (long*)src;
+      aligned_dst = (BLOCK_TYPE*)dst;
+      aligned_src = (BLOCK_TYPE*)src;
 
-      /* Copy 4X long words at a time if possible.  */
+      /* Copy 4X BLOCK_TYPE words at a time if possible.  */
       while (len0 >= BIGBLOCKSIZE)
         {
           *aligned_dst++ = *aligned_src++;
@@ -85,7 +95,7 @@ memcpy (void *__restrict dst0,
           len0 -= BIGBLOCKSIZE;
         }
 
-      /* Copy one long word at a time if possible.  */
+      /* Copy one BLOCK_TYPE word at a time if possible.  */
       while (len0 >= LITTLEBLOCKSIZE)
         {
           *aligned_dst++ = *aligned_src++;

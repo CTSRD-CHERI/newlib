@@ -69,11 +69,7 @@ LIBRARIES = $(noinst_LIBRARIES)
 ARFLAGS = cru
 lib_a_AR = $(AR) $(ARFLAGS)
 lib_a_LIBADD =
-am_lib_a_OBJECTS = lib_a-memmove.$(OBJEXT) \
-	lib_a-memmove-stub.$(OBJEXT) lib_a-memset.$(OBJEXT) \
-	lib_a-memcpy-asm.$(OBJEXT) lib_a-memcpy.$(OBJEXT) \
-	lib_a-strlen.$(OBJEXT) lib_a-strcpy.$(OBJEXT) \
-	lib_a-strcmp.$(OBJEXT) lib_a-setjmp.$(OBJEXT) \
+am_lib_a_OBJECTS = lib_a-setjmp.$(OBJEXT) \
 	lib_a-ieeefp.$(OBJEXT) lib_a-ffs.$(OBJEXT)
 lib_a_OBJECTS = $(am_lib_a_OBJECTS)
 DEFAULT_INCLUDES = -I.@am__isrc@
@@ -105,6 +101,7 @@ CC = @CC@
 CCAS = @CCAS@
 CCASFLAGS = @CCASFLAGS@
 CCDEPMODE = @CCDEPMODE@
+CFLAGS = @CFLAGS@
 CYGPATH_W = @CYGPATH_W@
 DEFS = @DEFS@
 DEPDIR = @DEPDIR@
@@ -202,7 +199,6 @@ AM_CCASFLAGS = $(INCLUDES)
 noinst_LIBRARIES = lib.a
 lib_a_SOURCES = memmove.S memmove-stub.c memset.S memcpy-asm.S memcpy.c strlen.c \
 	strcpy.c strcmp.S setjmp.S ieeefp.c ffs.c
-
 lib_a_CCASFLAGS = $(AM_CCASFLAGS)
 lib_a_CFLAGS = $(AM_CFLAGS)
 ACLOCAL_AMFLAGS = -I ../../.. -I ../../../..

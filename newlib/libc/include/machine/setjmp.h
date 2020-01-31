@@ -367,6 +367,15 @@ _BEGIN_STD_C
 #endif
 
 #ifdef __riscv
+#ifdef __CHERI_PURE_CAPABILITY__
+#define _JBTYPE __uintcap_t
+/* Same number of GPCRs as GPRs below, plus DDC.  */
+#ifdef __riscv_32e
+#define _JBLEN ((5*sizeof(__uintcap_t) + sizeof(_JBTYPE) - 1)/sizeof(_JBTYPE))
+#else
+#define _JBLEN ((15*sizeof(__uintcap_t) + 12*sizeof(double) + sizeof(_JBTYPE) - 1)/sizeof(_JBTYPE))
+#endif
+#else
 /* _JBTYPE using long long to make sure the alignment is align to 8 byte,
    otherwise in rv32imafd, store/restore FPR may mis-align.  */
 #define _JBTYPE long long
@@ -374,6 +383,7 @@ _BEGIN_STD_C
 #define _JBLEN ((4*sizeof(long))/sizeof(long))
 #else
 #define _JBLEN ((14*sizeof(long) + 12*sizeof(double))/sizeof(long))
+#endif
 #endif
 #endif
 

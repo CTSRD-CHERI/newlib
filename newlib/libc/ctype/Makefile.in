@@ -126,6 +126,7 @@ am__objects_1 = lib_a-ctype_.$(OBJEXT) lib_a-isalnum.$(OBJEXT) \
 @ELIX_LEVEL_1_FALSE@	lib_a-tolower_l.$(OBJEXT) \
 @ELIX_LEVEL_1_FALSE@	lib_a-toupper_l.$(OBJEXT) \
 @ELIX_LEVEL_1_FALSE@	lib_a-towctrans.$(OBJEXT) \
+@ELIX_LEVEL_1_FALSE@	lib_a-towctrans_l.$(OBJEXT) \
 @ELIX_LEVEL_1_FALSE@	lib_a-towlower.$(OBJEXT) \
 @ELIX_LEVEL_1_FALSE@	lib_a-towlower_l.$(OBJEXT) \
 @ELIX_LEVEL_1_FALSE@	lib_a-towupper.$(OBJEXT) \
@@ -158,7 +159,7 @@ am__objects_3 = ctype_.lo isalnum.lo isalpha.lo iscntrl.lo isdigit.lo \
 @ELIX_LEVEL_1_FALSE@	iswxdigit.lo iswxdigit_l.lo isxdigit_l.lo \
 @ELIX_LEVEL_1_FALSE@	jp2uc.lo toascii.lo toascii_l.lo \
 @ELIX_LEVEL_1_FALSE@	tolower_l.lo toupper_l.lo towctrans.lo \
-@ELIX_LEVEL_1_FALSE@	towlower.lo towlower_l.lo \
+@ELIX_LEVEL_1_FALSE@	towctrans_l.lo towlower.lo towlower_l.lo \
 @ELIX_LEVEL_1_FALSE@	towupper.lo towupper_l.lo wctrans.lo \
 @ELIX_LEVEL_1_FALSE@	wctrans_l.lo wctype.lo wctype_l.lo
 @USE_LIBTOOL_TRUE@am_libctype_la_OBJECTS = $(am__objects_3) \
@@ -398,6 +399,7 @@ GENERAL_SOURCES = \
 @ELIX_LEVEL_1_FALSE@	tolower_l.c 	\
 @ELIX_LEVEL_1_FALSE@	toupper_l.c	\
 @ELIX_LEVEL_1_FALSE@	towctrans.c 	\
+@ELIX_LEVEL_1_FALSE@	towctrans_l.c 	\
 @ELIX_LEVEL_1_FALSE@	towlower.c 	\
 @ELIX_LEVEL_1_FALSE@	towlower_l.c 	\
 @ELIX_LEVEL_1_FALSE@	towupper.c 	\
@@ -890,6 +892,12 @@ lib_a-towctrans.o: towctrans.c
 
 lib_a-towctrans.obj: towctrans.c
 	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-towctrans.obj `if test -f 'towctrans.c'; then $(CYGPATH_W) 'towctrans.c'; else $(CYGPATH_W) '$(srcdir)/towctrans.c'; fi`
+
+lib_a-towctrans_l.o: towctrans_l.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-towctrans_l.o `test -f 'towctrans_l.c' || echo '$(srcdir)/'`towctrans_l.c
+
+lib_a-towctrans_l.obj: towctrans_l.c
+	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-towctrans_l.obj `if test -f 'towctrans_l.c'; then $(CYGPATH_W) 'towctrans_l.c'; else $(CYGPATH_W) '$(srcdir)/towctrans_l.c'; fi`
 
 lib_a-towlower.o: towlower.c
 	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(lib_a_CFLAGS) $(CFLAGS) -c -o lib_a-towlower.o `test -f 'towlower.c' || echo '$(srcdir)/'`towlower.c

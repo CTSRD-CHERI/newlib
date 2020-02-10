@@ -67,7 +67,7 @@ stpncpy (char *__restrict dst,
 {
   char *ret = NULL;
 
-#if !defined(PREFER_SIZE_OVER_SPEED) && !defined(__OPTIMIZE_SIZE__)
+#if !defined(PREFER_SIZE_OVER_SPEED) && !defined(__OPTIMIZE_SIZE__) && !defined(__CHERI_PURE_CAPABILITY__)
   long *aligned_dst;
   const long *aligned_src;
 

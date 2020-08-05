@@ -88,7 +88,7 @@ cheri_copyaddress(const void * __capability dst, const void * __capability src)
 }
 
 /* Get the top of a capability (i.e. one byte past the last accessible one) */
-static inline vaddr_t
+static inline ptraddr_t
 cheri_gettop(const void * __capability cap)
 {
 	return (cheri_getbase(cap) + cheri_getlen(cap));
@@ -100,7 +100,7 @@ static inline bool
 #else
 static inline _Bool
 #endif
-cheri_is_address_inbounds(const void * __capability cap, vaddr_t addr)
+cheri_is_address_inbounds(const void * __capability cap, ptraddr_t addr)
 {
 	return (addr >= cheri_getbase(cap) && addr < cheri_gettop(cap));
 }

@@ -70,6 +70,12 @@ PORTABILITY
 #define inline
 #endif
 
+#if __has_feature(capabilities)
+typedef __uintcap_t big_primitive_type;
+#else
+typedef long big_primitive_type;
+#endif
+
 #if defined(I_AM_QSORT_R)
 typedef int		 cmp_t(void *, const void *, const void *);
 #elif defined(I_AM_GNU_QSORT_R)
@@ -96,8 +102,8 @@ static inline void	 swapfunc (char *, char *, int, int);
         } while (--i > 0);				\
 }
 
-#define SWAPINIT(a, es) swaptype = ((char *)a - (char *)0) % sizeof(long) || \
-	es % sizeof(long) ? 2 : es == sizeof(long)? 0 : 1;
+#define SWAPINIT(a, es) swaptype = ((char *)a - (char *)0) % sizeof(big_primitive_type) || \
+	es % sizeof(big_primitive_type) ? 2 : es == sizeof(big_primitive_type)? 0 : 1;
 
 static inline void
 swapfunc (char *a,
@@ -106,17 +112,17 @@ swapfunc (char *a,
 	int swaptype)
 {
 	if(swaptype <= 1)
-		swapcode(long, a, b, n)
+		swapcode(big_primitive_type, a, b, n)
 	else
 		swapcode(char, a, b, n)
 }
 
-#define swap(a, b)					\
-	if (swaptype == 0) {				\
-		long t = *(long *)(a);			\
-		*(long *)(a) = *(long *)(b);		\
-		*(long *)(b) = t;			\
-	} else						\
+#define swap(a, b) 								\
+	if (swaptype == 0) { 							\
+		big_primitive_type t = *(big_primitive_type *)(a); 		\
+		*(big_primitive_type *)(a) = *(big_primitive_type *)(b); 	\
+		*(big_primitive_type *)(b) = t;					\
+	} else									\
 		swapfunc(a, b, es, swaptype)
 
 #define vecswap(a, b, n) 	if ((n) > 0) swapfunc(a, b, n, swaptype)

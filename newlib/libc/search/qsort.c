@@ -72,8 +72,10 @@ PORTABILITY
 
 #if __has_feature(capabilities)
 typedef __uintcap_t big_primitive_type;
+typedef long middle_primitive_type;
 #else
 typedef long big_primitive_type;
+typedef long middle_primitive_type;
 #endif
 
 #if defined(I_AM_QSORT_R)
@@ -102,8 +104,12 @@ static inline void	 swapfunc (char *, char *, int, int);
         } while (--i > 0);				\
 }
 
-#define SWAPINIT(a, es) swaptype = ((char *)a - (char *)0) % sizeof(big_primitive_type) || \
-	es % sizeof(big_primitive_type) ? 2 : es == sizeof(big_primitive_type)? 0 : 1;
+#define SWAPINIT(a, es) swaptype = \
+	((char *)a - (char *)0) % sizeof(big_primitive_type) || \
+		es % sizeof(big_primitive_type) ? 3 : \
+	((char *)a - (char *)0) % sizeof(middle_primitive_type) || \
+		es % sizeof(middle_primitive_type) ? 2 : \
+	es == sizeof(big_primitive_type)? 0 : 1;
 
 static inline void
 swapfunc (char *a,
@@ -113,6 +119,8 @@ swapfunc (char *a,
 {
 	if(swaptype <= 1)
 		swapcode(big_primitive_type, a, b, n)
+	else if (swaptype == 2)
+		swapcode(middle_primitive_type, a, b, n)
 	else
 		swapcode(char, a, b, n)
 }

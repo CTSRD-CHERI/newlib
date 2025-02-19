@@ -1,6 +1,5 @@
-char inbyte(void);
-int outbyte(char c);
-
+extern int outbyte(unsigned char byte);
+extern void print (const char *);
 
 int main()
 {

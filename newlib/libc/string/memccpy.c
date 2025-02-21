@@ -4,7 +4,7 @@ FUNCTION
 
 SYNOPSIS
         #include <string.h>
-        void* memccpy(void *restrict <[out]>, const void *restrict <[in]>, 
+        void* memccpy(void *restrict <[out]>, const void *restrict <[in]>,
                       int <[endchar]>, size_t <[n]>);
 
 DESCRIPTION
@@ -88,11 +88,11 @@ memccpy (void *__restrict dst0,
   return ptr;
 #else
   void *ptr = NULL;
-  char *dst = dst0;
-  const char *src = src0;
+  unsigned char *dst = dst0;
+  const unsigned char *src = src0;
   BLOCK_TYPE *aligned_dst;
   const BLOCK_TYPE *aligned_src;
-  char endchar = endchar0 & 0xff;
+  unsigned char endchar = endchar0 & 0xff;
 
   /* If the size is small, or either SRC or DST is unaligned,
      then punt into the byte copy loop.  This should be rare.  */
@@ -142,8 +142,8 @@ memccpy (void *__restrict dst0,
         }
 
        /* Pick up any residual with a byte copier.  */
-      dst = (char*)aligned_dst;
-      src = (char*)aligned_src;
+      dst = (unsigned char*)aligned_dst;
+      src = (unsigned char*)aligned_src;
     }
 
   while (len0--)

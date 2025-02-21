@@ -1,4 +1,6 @@
 /*-
+ * SPDX-License-Identifier: BSD-2-Clause
+ *
  * Copyright (c) 2011 Ed Schouten <ed@FreeBSD.org>
  *                    David Chisnall <theraven@FreeBSD.org>
  * All rights reserved.
@@ -23,8 +25,6 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- * $FreeBSD$
  */
 
 #ifndef _STDATOMIC_H_
@@ -33,7 +33,8 @@
 #include <sys/cdefs.h>
 #include <sys/_types.h>
 
-#if __has_extension(c_atomic) || __has_extension(cxx_atomic)
+#if (__has_extension(c_atomic) || __has_extension(cxx_atomic)) && \
+    defined(__clang__)
 #define	__CLANG_ATOMICS
 #elif __GNUC_PREREQ__(4, 7)
 #define	__GNUC_ATOMICS
@@ -161,6 +162,11 @@ atomic_signal_fence(memory_order __order __unused)
 #endif
 }
 
+#if defined(__cplusplus) && !defined(_Bool)
+#define	_Bool	bool
+#define	__bool_locally_defined
+#endif
+
 /*
  * 7.17.5 Lock-free property.
  */
@@ -169,12 +175,9 @@ atomic_signal_fence(memory_order __order __unused)
 /* Atomics in kernelspace are always lock-free. */
 #define	atomic_is_lock_free(obj) \
 	((void)(obj), (_Bool)1)
-#elif defined(__CLANG_ATOMICS)
+#elif defined(__CLANG_ATOMICS) || defined(__GNUC_ATOMICS)
 #define	atomic_is_lock_free(obj) \
 	__atomic_is_lock_free(sizeof(*(obj)), obj)
-#elif defined(__GNUC_ATOMICS)
-#define	atomic_is_lock_free(obj) \
-	__atomic_is_lock_free(sizeof((obj)->__val), &(obj)->__val)
 #else
 #define	atomic_is_lock_free(obj) \
 	((void)(obj), sizeof((obj)->__val) <= sizeof(void *))
@@ -260,28 +263,28 @@ typedef _Atomic(uintmax_t)		atomic_uintmax_t;
 #elif defined(__GNUC_ATOMICS)
 #define	atomic_compare_exchange_strong_explicit(object, expected,	\
     desired, success, failure)						\
-	__atomic_compare_exchange_n(&(object)->__val, expected,		\
+	__atomic_compare_exchange_n(object, expected,			\
 	    desired, 0, success, failure)
 #define	atomic_compare_exchange_weak_explicit(object, expected,		\
     desired, success, failure)						\
-	__atomic_compare_exchange_n(&(object)->__val, expected,		\
+	__atomic_compare_exchange_n(object, expected,			\
 	    desired, 1, success, failure)
 #define	atomic_exchange_explicit(object, desired, order)		\
-	__atomic_exchange_n(&(object)->__val, desired, order)
+	__atomic_exchange_n(object, desired, order)
 #define	atomic_fetch_add_explicit(object, operand, order)		\
-	__atomic_fetch_add(&(object)->__val, operand, order)
+	__atomic_fetch_add(object, operand, order)
 #define	atomic_fetch_and_explicit(object, operand, order)		\
-	__atomic_fetch_and(&(object)->__val, operand, order)
+	__atomic_fetch_and(object, operand, order)
 #define	atomic_fetch_or_explicit(object, operand, order)		\
-	__atomic_fetch_or(&(object)->__val, operand, order)
+	__atomic_fetch_or(object, operand, order)
 #define	atomic_fetch_sub_explicit(object, operand, order)		\
-	__atomic_fetch_sub(&(object)->__val, operand, order)
+	__atomic_fetch_sub(object, operand, order)
 #define	atomic_fetch_xor_explicit(object, operand, order)		\
-	__atomic_fetch_xor(&(object)->__val, operand, order)
+	__atomic_fetch_xor(object, operand, order)
 #define	atomic_load_explicit(object, order)				\
-	__atomic_load_n(&(object)->__val, order)
+	__atomic_load_n(object, order)
 #define	atomic_store_explicit(object, desired, order)			\
-	__atomic_store_n(&(object)->__val, desired, order)
+	__atomic_store_n(object, desired, order)
 #else
 #define	__atomic_apply_stride(object, operand) \
 	(((__typeof__((object)->__val))0) + (operand))
@@ -376,7 +379,6 @@ __extension__ ({							\
 typedef struct {
 	atomic_bool	__flag;
 } atomic_flag;
-
 #define	ATOMIC_FLAG_INIT		{ ATOMIC_VAR_INIT(0) }
 
 static __inline _Bool
@@ -409,5 +411,10 @@ atomic_flag_clear(volatile atomic_flag *__object)
 	atomic_flag_clear_explicit(__object, memory_order_seq_cst);
 }
 #endif /* !_KERNEL */
+
+#ifdef __bool_locally_defined
+#undef _Bool
+#undef __bool_locally_defined
+#endif
 
 #endif /* !_STDATOMIC_H_ */

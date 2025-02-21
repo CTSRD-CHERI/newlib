@@ -35,6 +35,9 @@ What changed:
 
 - Improve /proc/cpuinfo output and align more closely with Linux.
 
+- Raise stackdump frame limit from 16 to 32.
+  Addresses: https://cygwin.com/ml/cygwin/2019-11/msg00038.html
+
 
 Bug Fixes
 ---------
@@ -101,3 +104,13 @@ Bug Fixes
 - Fix a security problem if Cygwin is installed into a path
   with spaces in it.
   Addresses: https://cygwin.com/ml/cygwin/2019-11/msg00018.html
+
+- Fix an assertion failure when /cygdrive contains an offline network
+  drive.
+  Addresses: https://cygwin.com/ml/cygwin/2019-12/msg00016.html
+
+- Fix return value of ilogbl for 0 input.
+  Addresses: https://cygwin.com/ml/cygwin/2019-12/msg00074.html
+
+- Let strtold set errno to ERANGE on underflow per POSIX.
+  Addresses: https://cygwin.com/ml/cygwin/2019-12/msg00072.html

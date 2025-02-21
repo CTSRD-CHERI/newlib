@@ -38,69 +38,106 @@ int __sp_ln;
 
 bool no_thread_exit_protect::flag;
 
-char NO_COPY myself_nowait_dummy[1] = {'0'};// Flag to sig_send that signal goes to
-					//  current process but no wait is required
+/* Flag to sig_send that signal goes to current process but no wait is
+   required. */
+char NO_COPY myself_nowait_dummy[1] = {'0'};
 
-#define Static static NO_COPY
+/* All my children info.  Avoid expensive constructor ops at DLL
+   startup.
 
+   This class can allocate memory.  But there's no need to free it
+   because only one instance of the class is created per process. */
+class child_procs {
+    static const int _NPROCS = 1024;
+    static const int _NPROCS_2 = 4095;
+    int _count;
+    uint8_t _procs[_NPROCS * sizeof (pinfo)] __attribute__ ((__aligned__));
+    pinfo *_procs_2;
+  public:
+    int count () const { return _count; }
+    int add_one () { return ++_count; }
+    int del_one () { return --_count; }
+    int reset () { return _count = 0; }
+    pinfo &operator[] (int idx)
+    {
+      if (idx >= _NPROCS)
+	{
+	  if (!_procs_2)
+	    {
+	      /* Use HeapAlloc to avoid propagating this memory area
+		 to the child processes. */
+	      _procs_2 = (pinfo *) HeapAlloc (GetProcessHeap (),
+					      HEAP_GENERATE_EXCEPTIONS
+					      | HEAP_ZERO_MEMORY,
+					      (_NPROCS_2 + 1) * sizeof (pinfo));
+	    }
+	  return _procs_2[idx - _NPROCS];
+	}
+      return ((pinfo *) _procs)[idx];
+    }
+    int max_child_procs () const { return _NPROCS + _NPROCS_2; }
+};
+static NO_COPY child_procs chld_procs;
 
-Static int nprocs;			// Number of deceased children
-Static char cprocs[(NPROCS + 1) * sizeof (pinfo)];// All my children info
-#define procs ((pinfo *) cprocs)	// All this just to avoid expensive
-					// constructor operation  at DLL startup
-Static waitq waitq_head;		// Start of queue for wait'ing threads
+/* Start of queue for waiting threads. */
+static NO_COPY waitq waitq_head;
 
-Static muto sync_proc_subproc;	// Control access to subproc stuff
+/* Controls access to subproc stuff. */
+static NO_COPY muto sync_proc_subproc;
 
 _cygtls NO_COPY *_sig_tls;
 
-Static HANDLE my_sendsig;
-Static HANDLE my_readsig;
+static NO_COPY HANDLE my_sendsig;
+static NO_COPY HANDLE my_readsig;
 
 /* Used in select if a signalfd is part of the read descriptor set */
 HANDLE NO_COPY my_pendingsigs_evt;
 
 /* Function declarations */
-static int __reg1 checkstate (waitq *);
+static int checkstate (waitq *);
 static __inline__ bool get_proc_lock (DWORD, DWORD);
-static bool __stdcall remove_proc (int);
-static bool __stdcall stopped_or_terminated (waitq *, _pinfo *);
-static void WINAPI wait_sig (VOID *arg);
+static int remove_proc (int);
+static bool stopped_or_terminated (waitq *, _pinfo *);
+static void wait_sig (VOID *arg);
 
 /* wait_sig bookkeeping */
 
 class pending_signals
 {
-  sigpacket sigs[NSIG + 1];
+  sigpacket sigs[_NSIG + 1];
   sigpacket start;
+  SRWLOCK queue_lock;
   bool retry;
+  void lock () { AcquireSRWLockExclusive (&queue_lock); }
+  void unlock () { ReleaseSRWLockExclusive (&queue_lock); }
 
 public:
+  pending_signals (): queue_lock (SRWLOCK_INIT) {}
   void add (sigpacket&);
-  bool pending () {retry = true; return !!start.next;}
-  void clear (int sig) {sigs[sig].si.si_signo = 0;}
+  bool pending () {retry = !!start.next; return retry;}
+  void clear (int sig, bool need_lock);
   void clear (_cygtls *tls);
-  friend void __reg1 sig_dispatch_pending (bool);
-  friend void WINAPI wait_sig (VOID *arg);
+  friend void sig_dispatch_pending (bool);
+  friend void wait_sig (VOID *arg);
 };
 
-Static pending_signals sigq;
+static NO_COPY pending_signals sigq;
 
 /* Functions */
-void __stdcall
+void
 sigalloc ()
 {
   cygheap->sigs = global_sigs =
-    (struct sigaction *) ccalloc_abort (HEAP_SIGS, NSIG, sizeof (struct sigaction));
+    (struct sigaction *) ccalloc_abort (HEAP_SIGS, _NSIG, sizeof (struct sigaction));
   global_sigs[SIGSTOP].sa_flags = SA_RESTART | SA_NODEFER;
 }
 
-void __stdcall
+void
 signal_fixup_after_exec ()
 {
   global_sigs = cygheap->sigs;
   /* Set up child's signal handlers */
-  for (int i = 0; i < NSIG; i++)
+  for (int i = 0; i < _NSIG; i++)
     {
       global_sigs[i].sa_mask = 0;
       if (global_sigs[i].sa_handler != SIG_IGN)
@@ -121,7 +158,7 @@ get_proc_lock (DWORD what, DWORD val)
 {
   if (!cygwin_finished_initializing)
     return true;
-  Static int lastwhat = -1;
+  static NO_COPY int lastwhat = -1;
   if (!sync_proc_subproc)
     {
       sigproc_printf ("sync_proc_subproc is NULL");
@@ -137,7 +174,7 @@ get_proc_lock (DWORD what, DWORD val)
   return false;
 }
 
-static bool __stdcall
+static bool
 proc_can_be_signalled (_pinfo *p)
 {
   if (!(p->exitcode & EXITCODE_SET))
@@ -152,7 +189,7 @@ proc_can_be_signalled (_pinfo *p)
   return false;
 }
 
-bool __reg1
+bool
 pid_exists (pid_t pid)
 {
   pinfo p (pid);
@@ -160,20 +197,21 @@ pid_exists (pid_t pid)
 }
 
 /* Return true if this is one of our children, false otherwise.  */
-static inline bool __stdcall
+static inline bool
 mychild (int pid)
 {
-  for (int i = 0; i < nprocs; i++)
-    if (procs[i]->pid == pid)
+  for (int i = 0; i < chld_procs.count (); i++)
+    if (chld_procs[i]->pid == pid)
       return true;
   return false;
 }
 
 /* Handle all subprocess requests
  */
-int __reg2
+int
 proc_subproc (DWORD what, uintptr_t val)
 {
+  int slot;
   int rc = 1;
   int potential_match;
   int clearing;
@@ -195,19 +233,17 @@ proc_subproc (DWORD what, uintptr_t val)
     /* Add a new subprocess to the children arrays.
      * (usually called from the main thread)
      */
-    case PROC_ADDCHILD:
+    case PROC_ADD_CHILD:
       /* Filled up process table? */
-      if (nprocs >= NPROCS)
+      if (chld_procs.count () >= chld_procs.max_child_procs ())
 	{
 	  sigproc_printf ("proc table overflow: hit %d processes, pid %d\n",
-			  nprocs, vchild->pid);
+			  chld_procs.count (), vchild->pid);
 	  rc = 0;
 	  set_errno (EAGAIN);
 	  break;
 	}
-      /* fall through intentionally */
 
-    case PROC_DETACHED_CHILD:
       if (vchild != myself)
 	{
 	  vchild->uid = myself->uid;
@@ -217,18 +253,19 @@ proc_subproc (DWORD what, uintptr_t val)
 	  vchild->ctty = myself->ctty;
 	  vchild->cygstarted = true;
 	  vchild->process_state |= PID_INITIALIZING;
-	  vchild->ppid = what == PROC_DETACHED_CHILD ? 1 : myself->pid;	/* always set last */
+	  vchild->ppid = myself->pid;	/* always set last */
 	}
       break;
 
-    case PROC_REATTACH_CHILD:
-      procs[nprocs] = vchild;
-      rc = procs[nprocs].wait ();
+    case PROC_ATTACH_CHILD:
+      slot = chld_procs.count ();
+      chld_procs[slot] = vchild;
+      rc = chld_procs[slot].wait ();
       if (rc)
 	{
 	  sigproc_printf ("added pid %d to proc table, slot %d", vchild->pid,
-			  nprocs);
-	  nprocs++;
+			  slot);
+	  chld_procs.add_one ();
 	}
       break;
 
@@ -263,8 +300,10 @@ proc_subproc (DWORD what, uintptr_t val)
       goto scan_wait;
 
     case PROC_EXEC_CLEANUP:
-      while (nprocs)
-	remove_proc (0);
+      /* Cleanup backwards to eliminate redundant copying of chld_procs
+	 array members inside remove_proc. */
+      while (chld_procs.count ())
+	remove_proc (chld_procs.count () - 1);
       for (w = &waitq_head; w->next != NULL; w = w->next)
 	CloseHandle (w->next->ev);
       break;
@@ -277,7 +316,8 @@ proc_subproc (DWORD what, uintptr_t val)
       if (val)
 	sigproc_printf ("clear waiting threads");
       else
-	sigproc_printf ("looking for processes to reap, nprocs %d", nprocs);
+	sigproc_printf ("looking for processes to reap, count %d",
+			chld_procs.count ());
       clearing = val;
 
     scan_wait:
@@ -315,7 +355,7 @@ proc_subproc (DWORD what, uintptr_t val)
 	}
 
       if (global_sigs[SIGCHLD].sa_handler == (void *) SIG_IGN)
-	for (int i = 0; i < nprocs; i += remove_proc (i))
+	for (int i = 0; i < chld_procs.count (); i += remove_proc (i))
 	  continue;
   }
 
@@ -355,45 +395,63 @@ _cygtls::remove_wq (DWORD wait)
    Called on process exit.
    Also called by spawn_guts to disassociate any subprocesses from this
    process.  Subprocesses will then know to clean up after themselves and
-   will not become procs.  */
-void __stdcall
+   will not become chld_procs.  */
+void
 proc_terminate ()
 {
-  sigproc_printf ("nprocs %d", nprocs);
-  if (nprocs)
+  sigproc_printf ("child_procs count %d", chld_procs.count ());
+  if (chld_procs.count ())
     {
       sync_proc_subproc.acquire (WPSP);
 
       proc_subproc (PROC_CLEARWAIT, 1);
 
       /* Clean out proc processes from the pid list. */
-      for (int i = 0; i < nprocs; i++)
+      for (int i = 0; i < chld_procs.count (); i++)
 	{
 	  /* If we've execed then the execed process will handle setting ppid
 	     to 1 iff it is a Cygwin process.  */
 	  if (!have_execed || !have_execed_cygwin)
-	    procs[i]->ppid = 1;
-	  if (procs[i].wait_thread)
-	    procs[i].wait_thread->terminate_thread ();
+	    chld_procs[i]->ppid = 1;
+	  if (chld_procs[i].wait_thread)
+	    chld_procs[i].wait_thread->terminate_thread ();
 	  /* Release memory associated with this process unless it is 'myself'.
-	     'myself' is only in the procs table when we've execed.  We reach
-	     here when the next process has finished initializing but we still
-	     can't free the memory used by 'myself' since it is used later on
-	     during cygwin tear down.  */
-	  if (procs[i] != myself)
-	    procs[i].release ();
+	     'myself' is only in the chld_procs table when we've execed.  We
+	     reach here when the next process has finished initializing but we
+	     still can't free the memory used by 'myself' since it is used
+	     later on during cygwin tear down.  */
+	  if (chld_procs[i] != myself)
+	    chld_procs[i].release ();
 	}
-      nprocs = 0;
+      chld_procs.reset ();
       sync_proc_subproc.release ();
     }
   sigproc_printf ("leaving");
 }
 
 /* Clear pending signal */
-void __reg1
-sig_clear (int sig)
+void
+sig_clear (int sig, bool need_lock)
 {
-  sigq.clear (sig);
+  sigq.clear (sig, need_lock);
+}
+
+/* Clear pending signals of specific si_signo.
+   Called from sigpacket::process(). */
+void
+pending_signals::clear (int sig, bool need_lock)
+{
+  sigpacket *q = sigs + sig;
+  if (!sig || !q->si.si_signo)
+    return;
+  if (need_lock)
+    lock ();
+  q->si.si_signo = 0;
+  q->prev->next = q->next;
+  if (q->next)
+    q->next->prev = q->prev;
+  if (need_lock)
+    unlock ();
 }
 
 /* Clear pending signals of specific thread.  Called under TLS lock from
@@ -401,16 +459,18 @@ sig_clear (int sig)
 void
 pending_signals::clear (_cygtls *tls)
 {
-  sigpacket *q = &start, *qnext;
+  sigpacket *q = &start;
 
-  while ((qnext = q->next))
-    if (qnext->sigtls == tls)
+  lock ();
+  while ((q = q->next))
+    if (q->sigtls == tls)
       {
-	qnext->si.si_signo = 0;
-	q->next = qnext->next;
+	q->si.si_signo = 0;
+	q->prev->next = q->next;
+	if (q->next)
+	  q->next->prev = q->prev;
       }
-    else
-      q = qnext;
+  unlock ();
 }
 
 /* Clear pending signals of specific thread.  Called from _cygtls::remove */
@@ -431,7 +491,7 @@ sigpending (sigset_t *mask)
 }
 
 /* Force the wait_sig thread to wake up and scan for pending signals */
-void __reg1
+void
 sig_dispatch_pending (bool fast)
 {
   /* Non-atomically test for any signals pending and wake up wait_sig if any are
@@ -443,13 +503,13 @@ sig_dispatch_pending (bool fast)
 
 /* Signal thread initialization.  Called from dll_crt0_1.
    This routine starts the signal handling thread.  */
-void __stdcall
+void
 sigproc_init ()
 {
   char char_sa_buf[1024];
   PSECURITY_ATTRIBUTES sa = sec_user_nih ((PSECURITY_ATTRIBUTES) char_sa_buf, cygheap->user.sid());
   DWORD err = fhandler_pipe::create (sa, &my_readsig, &my_sendsig,
-				     NSIG * sizeof (sigpacket), "sigwait",
+				     _NSIG * sizeof (sigpacket), "sigwait",
 				     PIPE_ADD_PID);
   if (err)
     {
@@ -508,7 +568,7 @@ exit_thread (DWORD res)
   ExitThread (res);
 }
 
-sigset_t __reg3
+sigset_t
 sig_send (_pinfo *p, int sig, _cygtls *tls)
 {
   siginfo_t si = {};
@@ -521,7 +581,7 @@ sig_send (_pinfo *p, int sig, _cygtls *tls)
    If pinfo *p == NULL, send to the current process.
    If sending to this process, wait for notification that a signal has
    completed before returning.  */
-sigset_t __reg3
+sigset_t
 sig_send (_pinfo *p, siginfo_t& si, _cygtls *tls)
 {
   int rc = 1;
@@ -551,6 +611,14 @@ sig_send (_pinfo *p, siginfo_t& si, _cygtls *tls)
       p = myself;
     }
 
+  /* If myself is the stub process, send signal to the child process
+     rather than myself. The fact that myself->dwProcessId is not equal
+     to the current process id indicates myself is the stub process. */
+  if (its_me && myself->dwProcessId != GetCurrentProcessId ())
+    {
+      wait_for_completion = false;
+      its_me = false;
+    }
 
   if (its_me)
     sendsig = my_sendsig;
@@ -632,7 +700,7 @@ sig_send (_pinfo *p, siginfo_t& si, _cygtls *tls)
   sigset_t pending;
   if (!its_me)
     pack.mask = NULL;
-  else if (si.si_signo == __SIGPENDING)
+  else if (si.si_signo == __SIGPENDING || si.si_signo == __SIGPENDINGALL)
     pack.mask = &pending;
   else if (si.si_signo == __SIGFLUSH || si.si_signo > 0)
     {
@@ -683,7 +751,8 @@ sig_send (_pinfo *p, siginfo_t& si, _cygtls *tls)
       res = WriteFile (sendsig, leader, packsize, &nb, NULL);
       if (!res || packsize == nb)
 	break;
-      Sleep (10);
+      if (cygwait (NULL, 10, cw_sig_eintr) == WAIT_SIGNALED)
+	_my_tls.call_signal_handler ();
       res = 0;
     }
 
@@ -716,7 +785,7 @@ sig_send (_pinfo *p, siginfo_t& si, _cygtls *tls)
   if (wait_for_completion)
     {
       sigproc_printf ("Waiting for pack.wakeup %p", pack.wakeup);
-      rc = WaitForSingleObject (pack.wakeup, WSSC);
+      rc = cygwait (pack.wakeup, WSSC);
       ForceCloseHandle (pack.wakeup);
     }
   else
@@ -750,7 +819,7 @@ out:
     }
   if (pack.wakeup)
     ForceCloseHandle (pack.wakeup);
-  if (si.si_signo != __SIGPENDING)
+  if (si.si_signo != __SIGPENDING && si.si_signo != __SIGPENDINGALL)
     /* nothing */;
   else if (!rc)
     rc = pending;
@@ -766,31 +835,11 @@ int child_info::retry_count = 0;
    by fork/spawn/exec. */
 child_info::child_info (unsigned in_cb, child_info_types chtype,
 			bool need_subproc_ready):
-  cb (in_cb), intro (PROC_MAGIC_GENERIC), magic (CHILD_INFO_MAGIC),
-  type (chtype), cygheap (::cygheap), cygheap_max (::cygheap_max),
-  flag (0), retry (child_info::retry_count), rd_proc_pipe (NULL),
-  wr_proc_pipe (NULL)
+  msv_count (0), cb (in_cb), intro (PROC_MAGIC_GENERIC),
+  magic (CHILD_INFO_MAGIC), type (chtype), cygheap (::cygheap),
+  cygheap_max (::cygheap_max), flag (0), retry (child_info::retry_count),
+  rd_proc_pipe (NULL), wr_proc_pipe (NULL), sigmask (_my_tls.sigmask)
 {
-  /* It appears that when running under WOW64 on Vista 64, the first DWORD
-     value in the datastructure lpReserved2 is pointing to (msv_count in
-     Cygwin), has to reflect the size of that datastructure as used in the
-     Microsoft C runtime (a count value, counting the number of elements in
-     two subsequent arrays, BYTE[count and HANDLE[count]), even though the C
-     runtime isn't used.  Otherwise, if msv_count is 0 or too small, the
-     datastructure gets overwritten.
-
-     This seems to be a bug in Vista's WOW64, which apparently copies the
-     lpReserved2 datastructure not using the cbReserved2 size information,
-     but using the information given in the first DWORD within lpReserved2
-     instead.  However, it's not clear if a non-0 count doesn't result in
-     trying to evaluate the content, so we do this really only for Vista 64.
-
-     The value is sizeof (child_info_*) / 5 which results in a count which
-     covers the full datastructure, plus not more than 4 extra bytes.  This
-     is ok as long as the child_info structure is cosily stored within a bigger
-     datastructure. */
-  msv_count = wincap.needs_count_in_si_lpres2 () ? in_cb / 5 : 0;
-
   fhandler_union_cb = sizeof (fhandler_union);
   user_h = cygwin_user_h;
   if (strace.active ())
@@ -822,14 +871,7 @@ child_info::child_info (unsigned in_cb, child_info_types chtype,
   DWORD perms = PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ
 		| PROCESS_VM_OPERATION | SYNCHRONIZE;
   if (type == _CH_FORK)
-    {
-      perms |= PROCESS_DUP_HANDLE;
-      /* VirtualQueryEx is documented to require PROCESS_QUERY_INFORMATION.
-	 That's true for Windows 7, but PROCESS_QUERY_LIMITED_INFORMATION
-	 appears to be sufficient on Windows 8 and later. */
-      if (wincap.needs_query_information ())
-	perms |= PROCESS_QUERY_INFORMATION;
-    }
+    perms |= PROCESS_DUP_HANDLE;
 
   if (!DuplicateHandle (GetCurrentProcess (), GetCurrentProcess (),
 			GetCurrentProcess (), &parent, perms, TRUE, 0))
@@ -869,8 +911,8 @@ cygheap_exec_info::alloc ()
   cygheap_exec_info *res =
     (cygheap_exec_info *) ccalloc_abort (HEAP_1_EXEC, 1,
 					 sizeof (cygheap_exec_info)
-					 + (nprocs * sizeof (children[0])));
-  res->sigmask = _my_tls.sigmask;
+					 + (chld_procs.count ()
+					    * sizeof (children[0])));
   return res;
 }
 
@@ -878,8 +920,8 @@ void
 child_info_spawn::wait_for_myself ()
 {
   postfork (myself);
-  if (myself.remember (false))
-    myself.reattach ();
+  if (myself.remember ())
+    myself.attach ();
   WaitForSingleObject (ev, INFINITE);
 }
 
@@ -945,10 +987,10 @@ child_info_spawn::cleanup ()
 inline void
 cygheap_exec_info::record_children ()
 {
-  for (nchildren = 0; nchildren < nprocs; nchildren++)
+  for (nchildren = 0; nchildren < chld_procs.count (); nchildren++)
     {
-      children[nchildren].pid = procs[nchildren]->pid;
-      children[nchildren].p = procs[nchildren];
+      children[nchildren].pid = chld_procs[nchildren]->pid;
+      children[nchildren].p = chld_procs[nchildren];
       /* Set inheritance of required child handles for reattach_children
 	 in the about-to-be-execed process. */
       children[nchildren].p.set_inheritance (true);
@@ -973,7 +1015,7 @@ cygheap_exec_info::reattach_children (HANDLE parent)
       pinfo p (parent, children[i].p, children[i].pid);
       if (!p)
 	debug_only_printf ("couldn't reattach child %d from previous process", children[i].pid);
-      else if (!p.reattach ())
+      else if (!p.attach ())
 	debug_only_printf ("attach of child process %d failed", children[i].pid);
       else
 	debug_only_printf ("reattached pid %d<%u>, process handle %p, rd_proc_pipe %p->%p",
@@ -1065,7 +1107,7 @@ child_info::proc_retry (HANDLE h)
   if (!exit_code)
     return EXITCODE_OK;
   sigproc_printf ("exit_code %y", exit_code);
-  switch (exit_code)
+  switch ((NTSTATUS) exit_code)
     {
     case STILL_ACTIVE:	/* shouldn't happen */
       sigproc_printf ("STILL_ACTIVE?  How'd we get here?");
@@ -1078,7 +1120,7 @@ child_info::proc_retry (HANDLE h)
     case STATUS_CONTROL_C_EXIT:
       if (saw_ctrl_c ())
 	return EXITCODE_OK;
-      /* fall through intentionally */
+      fallthrough;
     case STATUS_DLL_INIT_FAILED:
     case STATUS_DLL_INIT_FAILED_LOGOFF:
     case EXITCODE_RETRY:
@@ -1124,18 +1166,18 @@ child_info_fork::abort (const char *fmt, ...)
 /* Check the state of all of our children to see if any are stopped or
  * terminated.
  */
-static int __reg1
+static int
 checkstate (waitq *parent_w)
 {
   int potential_match = 0;
 
-  sigproc_printf ("nprocs %d", nprocs);
+  sigproc_printf ("child_procs count %d", chld_procs.count ());
 
   /* Check already dead processes first to see if they match the criteria
    * given in w->next.  */
   int res;
-  for (int i = 0; i < nprocs; i++)
-    if ((res = stopped_or_terminated (parent_w, procs[i])))
+  for (int i = 0; i < chld_procs.count (); i++)
+    if ((res = stopped_or_terminated (parent_w, chld_procs[i])))
       {
 	remove_proc (i);
 	potential_match = 1;
@@ -1143,40 +1185,40 @@ checkstate (waitq *parent_w)
       }
 
   sigproc_printf ("no matching terminated children found");
-  potential_match = -!!nprocs;
+  potential_match = -!!chld_procs.count ();
 
 out:
   sigproc_printf ("returning %d", potential_match);
   return potential_match;
 }
 
-/* Remove a proc from procs by swapping it with the last child in the list.
+/* Remove a proc from chld_procs by swapping it with the last child in the list.
    Also releases shared memory of exited processes.  */
-static bool __stdcall
+static int
 remove_proc (int ci)
 {
   if (have_execed)
     {
-      if (_my_tls._ctinfo != procs[ci].wait_thread)
-	procs[ci].wait_thread->terminate_thread ();
+      if (_my_tls._ctinfo != chld_procs[ci].wait_thread)
+	chld_procs[ci].wait_thread->terminate_thread ();
     }
-  else if (procs[ci] && procs[ci]->exists ())
-    return true;
+  else if (chld_procs[ci] && chld_procs[ci]->exists ())
+    return 1;
 
-  sigproc_printf ("removing procs[%d], pid %d, nprocs %d", ci, procs[ci]->pid,
-		  nprocs);
-  if (procs[ci] != myself)
-    procs[ci].release ();
-  if (ci < --nprocs)
+  sigproc_printf ("removing chld_procs[%d], pid %d, child_procs count %d",
+		  ci, chld_procs[ci]->pid, chld_procs.count ());
+  if (chld_procs[ci] != myself)
+    chld_procs[ci].release ();
+  if (ci < chld_procs.del_one ())
     {
       /* Wait for proc_waiter thread to make a copy of this element before
 	 moving it or it may become confused.  The chances are very high that
 	 the proc_waiter thread has already done this by the time we
 	 get here.  */
       if (!have_execed && !exit_state)
-	while (!procs[nprocs].waiter_ready)
+	while (!chld_procs[chld_procs.count ()].waiter_ready)
 	  yield ();
-      procs[ci] = procs[nprocs];
+      chld_procs[ci] = chld_procs[chld_procs.count ()];
     }
   return 0;
 }
@@ -1187,7 +1229,7 @@ remove_proc (int ci)
    child is the subprocess being considered.
 
    Returns non-zero if waiting thread released.  */
-static bool __stdcall
+static bool
 stopped_or_terminated (waitq *parent_w, _pinfo *child)
 {
   int might_match;
@@ -1281,13 +1323,18 @@ pending_signals::add (sigpacket& pack)
   if (se->si.si_signo)
     return;
   *se = pack;
+  lock ();
   se->next = start.next;
-  start.next = se;
+  se->prev = &start;
+  se->prev->next = se;
+  if (se->next)
+    se->next->prev = se;
+  unlock ();
 }
 
 /* Process signals by waiting for signal data to arrive in a pipe.
    Set a completion event if one was specified. */
-static void WINAPI
+static void
 wait_sig (VOID *)
 {
   _sig_tls = &_my_tls;
@@ -1298,12 +1345,24 @@ wait_sig (VOID *)
 
   hntdll = GetModuleHandle ("ntdll.dll");
 
+  /* GetTickCount() here is enough because GetTickCount() - t0 does
+     not overflow until 49 days psss. Even if GetTickCount() overflows,
+     GetTickCount() - t0 returns correct value, since underflow in
+     unsigned wraps correctly. Pending a signal for more than 49
+     days makes no sense. */
+  DWORD t0 = GetTickCount ();
   for (;;)
     {
       DWORD nb;
       sigpacket pack = {};
       if (sigq.retry)
 	pack.si.si_signo = __SIGFLUSH;
+      else if (sigq.start.next
+	       && PeekNamedPipe (my_readsig, NULL, 0, NULL, &nb, NULL) && !nb)
+	{
+	  Sleep (GetTickCount () - t0 > 10 ? 1 : 0);
+	  pack.si.si_signo = __SIGFLUSH;
+	}
       else if (!ReadFile (my_readsig, &pack, sizeof (pack), &nb, NULL))
 	Sleep (INFINITE);	/* Assume were exiting.  Never exit this thread */
       else if (nb != sizeof (pack) || !pack.si.si_signo)
@@ -1311,24 +1370,39 @@ wait_sig (VOID *)
 	  system_printf ("garbled signal pipe data nb %u, sig %d", nb, pack.si.si_signo);
 	  continue;
 	}
+      if (pack.si.si_signo != __SIGFLUSH)
+	t0 = GetTickCount ();
 
       sigq.retry = false;
       /* Don't process signals when we start exiting */
       if (exit_state > ES_EXIT_STARTING && pack.si.si_signo > 0)
-	continue;
+	goto skip_process_signal;
 
       sigset_t dummy_mask;
       threadlist_t *tl_entry;
       if (!pack.mask)
 	{
-	  tl_entry = cygheap->find_tls (_main_tls);
-	  dummy_mask = _main_tls->sigmask;
-	  cygheap->unlock_tls (tl_entry);
+	  /* There's a short time at process startup of a forked process,
+	     when _main_tls points to the system-allocated stack, not to
+	     the parent thread. In that case find_tls fails, and we fetch
+	     the sigmask from the child_info passed from the parent. */
+	  if (cygwin_finished_initializing)
+	    {
+	      tl_entry = cygheap->find_tls (_main_tls);
+	      dummy_mask = _main_tls->sigmask;
+	      cygheap->unlock_tls (tl_entry);
+	    }
+	  else if (child_proc_info)
+	    dummy_mask = child_proc_info->sigmask;
+	  else
+	    dummy_mask = 0;
 	  pack.mask = &dummy_mask;
 	}
 
-      sigpacket *q = &sigq.start;
-      bool clearwait = false;
+      sigpacket *q;
+      q = &sigq.start;
+      bool clearwait;
+      clearwait = false;
       switch (pack.si.si_signo)
 	{
 	case __SIGCOMMUNE:
@@ -1337,12 +1411,36 @@ wait_sig (VOID *)
 	case __SIGSTRACE:
 	  strace.activate (false);
 	  break;
+	case __SIGPENDINGALL:
+	  {
+	    unsigned bit;
+	    bool issig_wait;
+
+	    *pack.mask = 0;
+	    sigq.lock ();
+	    while ((q = q->next))
+	      {
+		_cygtls *sigtls = q->sigtls ?: _main_tls;
+		if (sigtls->sigmask & (bit = SIGTOMASK (q->si.si_signo)))
+		  {
+		    tl_entry = cygheap->find_tls (q->si.si_signo, issig_wait);
+		    if (tl_entry)
+		      {
+			*pack.mask |= bit;
+			cygheap->unlock_tls (tl_entry);
+		      }
+		  }
+	      }
+	    sigq.unlock ();
+	  }
+	  break;
 	case __SIGPENDING:
 	  {
 	    unsigned bit;
 
 	    *pack.mask = 0;
 	    tl_entry = cygheap->find_tls (pack.sigtls);
+	    sigq.lock ();
 	    while ((q = q->next))
 	      {
 		/* Skip thread-specific signals for other threads. */
@@ -1351,6 +1449,7 @@ wait_sig (VOID *)
 		if (pack.sigtls->sigmask & (bit = SIGTOMASK (q->si.si_signo)))
 		  *pack.mask |= bit;
 	      }
+	    sigq.unlock ();
 	    cygheap->unlock_tls (tl_entry);
 	  }
 	  break;
@@ -1358,7 +1457,8 @@ wait_sig (VOID *)
 	  sig_held = true;
 	  break;
 	case __SIGSETPGRP:
-	  init_console_handler (true);
+	  init_console_handler (::cygheap->ctty
+				&& ::cygheap->ctty->is_console ());
 	  break;
 	case __SIGTHREADEXIT:
 	  {
@@ -1384,30 +1484,31 @@ wait_sig (VOID *)
 	  break;
 	default:	/* Normal (positive) signal */
 	  if (pack.si.si_signo < 0)
-	    sig_clear (-pack.si.si_signo);
+	    sig_clear (-pack.si.si_signo, true);
 	  else
 	    sigq.add (pack);
-	  /*FALLTHRU*/
+	  fallthrough;
 	case __SIGNOHOLD:
 	  sig_held = false;
-	  /*FALLTHRU*/
+	  fallthrough;
 	case __SIGFLUSH:
 	case __SIGFLUSHFAST:
 	  if (!sig_held)
 	    {
-	      sigpacket *qnext;
 	      /* Check the queue for signals.  There will always be at least one
 		 thing on the queue if this was a valid signal.  */
-	      while ((qnext = q->next))
+	      sigq.lock ();
+	      while ((q = q->next))
 		{
-		  if (qnext->si.si_signo && qnext->process () <= 0)
-		    q = qnext;
-		  else
+		  if (q->si.si_signo && q->process () > 0)
 		    {
-		      q->next = qnext->next;
-		      qnext->si.si_signo = 0;
+		      q->si.si_signo = 0;
+		      q->prev->next = q->next;
+		      if (q->next)
+			q->next->prev = q->prev;
 		    }
 		}
+	      sigq.unlock ();
 	      /* At least one signal still queued?  The event is used in select
 		 only, and only to decide if WFMO should wake up in case a
 		 signalfd is waiting via select/poll for being ready to read a
@@ -1425,6 +1526,7 @@ wait_sig (VOID *)
 	}
       if (clearwait && !have_execed)
 	proc_subproc (PROC_CLEARWAIT, 0);
+skip_process_signal:
       if (pack.wakeup)
 	{
 	  sigproc_printf ("signalling pack.wakeup %p", pack.wakeup);

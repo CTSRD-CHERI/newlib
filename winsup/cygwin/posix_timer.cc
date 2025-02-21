@@ -81,7 +81,7 @@ timer_tracker::arm_overrun_event (LONG64 exp_cnt)
 LONG
 timer_tracker::disarm_overrun_event ()
 {
-  LONG ret;
+  LONG ret = 0;
 
   AcquireSRWLockExclusive (&srwlock);
   if (overrun_count != OVR_DISARMED)
@@ -228,7 +228,7 @@ out:
   return 0;
 }
 
-static DWORD WINAPI
+static DWORD
 timer_thread (VOID *x)
 {
   timer_tracker *tt = ((timer_tracker *) x);
@@ -404,7 +404,7 @@ timer_tracker::settime (int flags, const itimerspec *new_value,
    leaking of timer ids into the child process. */
 #define cnew(name, ...) \
   ({ \
-    void* ptr = (void*) HeapAlloc (GetProcessHeap (), 0, sizeof (name)); \
+    void *ptr = (void *) HeapAlloc (GetProcessHeap (), 0, sizeof (name)); \
     ptr ? new (ptr) name (__VA_ARGS__) : NULL; \
   })
 
@@ -530,6 +530,7 @@ timer_delete (timer_t timerid)
 	  __leave;
 	}
       delete in_tt;
+      ret = 0;
     }
   __except (EFAULT) {}
   __endtry

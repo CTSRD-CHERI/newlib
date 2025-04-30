@@ -47,9 +47,9 @@
 #undef execv
 #undef execve
 
-int execve(const char *, const char * const [], char * const *);
-int execv(const char *, const char * const []);
-int execvp(const char *, const char * const []);
+int execve(const char *, char * const [], char * const *);
+int execv(const char *, char * const []);
+int execvp(const char *, char * const []);
 
 /* CGF: Avoid compilation warnings for undefined functions */
 extern int setregid (gid_t, gid_t);
@@ -225,7 +225,7 @@ extern void tt_exit();
 extern int  t_environ();
 extern void t_breakum(char *tcid, int total, int typ, char *msg, void (*fnc)());
 
-extern void tst_sig(int fork_flag, void (*handler)(), void (*cleanup)());
+extern void tst_sig(int fork_flag, void (*handler)(int), void (*cleanup)());
 extern void tst_tmpdir();
 extern void tst_rmdir();
 

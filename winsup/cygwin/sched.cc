@@ -33,9 +33,12 @@ sched_get_priority_max (int policy)
 {
   switch (policy)
     {
+    case SCHED_OTHER:
+    case SCHED_BATCH:
+    case SCHED_IDLE:
+      return 0;
     case SCHED_FIFO:
     case SCHED_RR:
-    case SCHED_OTHER:
       return 32;
     }
   set_errno (EINVAL);
@@ -48,9 +51,12 @@ sched_get_priority_min (int policy)
 {
   switch (policy)
     {
+    case SCHED_OTHER:
+    case SCHED_BATCH:
+    case SCHED_IDLE:
+      return 0;
     case SCHED_FIFO:
     case SCHED_RR:
-    case SCHED_OTHER:
       return 1;
     }
   set_errno (EINVAL);
@@ -90,6 +96,15 @@ sched_getparam (pid_t pid, struct sched_param *param)
       set_errno (ESRCH);
       return -1;
     }
+
+  if (p->sched_policy == SCHED_OTHER || p->sched_policy == SCHED_BATCH
+      || p->sched_policy == SCHED_IDLE)
+    {
+      /* No realtime policy. */
+      param->sched_priority = 0;
+      return 0;
+    }
+
   process = OpenProcess (PROCESS_QUERY_LIMITED_INFORMATION, FALSE,
 			 p->dwProcessId);
   if (!process)
@@ -105,44 +120,27 @@ sched_getparam (pid_t pid, struct sched_param *param)
       return -1;
     }
   /* calculate the unix priority. */
-  switch (pclass)
-    {
-    case IDLE_PRIORITY_CLASS:
-      param->sched_priority = 3;
-      break;
-    case BELOW_NORMAL_PRIORITY_CLASS:
-      param->sched_priority = 9;
-      break;
-    case NORMAL_PRIORITY_CLASS:
-    default:
-      param->sched_priority = 15;
-      break;
-    case ABOVE_NORMAL_PRIORITY_CLASS:
-      param->sched_priority = 21;
-      break;
-    case HIGH_PRIORITY_CLASS:
-      param->sched_priority = 27;
-      break;
-    case REALTIME_PRIORITY_CLASS:
-      param->sched_priority = 32;
-      break;
-    }
-
+  param->sched_priority = winprio_to_schedprio (pclass);
   return 0;
 }
 
 /* get the scheduler for pid
-
-   All process's on WIN32 run with SCHED_FIFO.  So we just give an answer.
-   (WIN32 uses a multi queue FIFO).
 */
 int
 sched_getscheduler (pid_t pid)
 {
   if (pid < 0)
-    return ESRCH;
-  else
-    return SCHED_FIFO;
+    {
+      set_errno (EINVAL);
+      return -1;
+    }
+  pinfo p (pid ? pid : getpid ());
+  if (!p)
+    {
+      set_errno (ESRCH);
+      return -1;
+    }
+  return p->sched_policy | (p->sched_reset_on_fork ? SCHED_RESET_ON_FORK : 0);
 }
 
 /* get the time quantum for pid */
@@ -209,61 +207,39 @@ sched_rr_get_interval (pid_t pid, struct timespec *interval)
 }
 
 /* set the scheduling parameters */
-int
-sched_setparam (pid_t pid, const struct sched_param *param)
+static int
+sched_setparam_pinfo (pinfo & p, const struct sched_param *param)
 {
-  pid_t localpid;
-  int pri;
-  DWORD pclass;
-  HANDLE process;
-
-  if (!param || pid < 0)
-    {
-      set_errno (EINVAL);
-      return -1;
-    }
-
-  if (!valid_sched_parameters (param))
-    {
-      set_errno (EINVAL);
-      return -1;
-    }
-
-  pri = param->sched_priority;
+  int pri = param->sched_priority;
 
   /* calculate our desired priority class.  We only reserve a small area
      (31/32) for realtime priority. */
-  if (pri <= 6)
+  DWORD pclass;
+  bool batch = (p->sched_policy == SCHED_BATCH);
+  if ((p->sched_policy == SCHED_OTHER || batch) && pri == 0)
+    /* No realtime policy, reapply the nice value. */
+    pclass = nice_to_winprio (p->nice, batch);
+  else if (p->sched_policy == SCHED_IDLE && pri == 0)
+    /* Idle policy, ignore the nice value. */
     pclass = IDLE_PRIORITY_CLASS;
-  else if (pri <= 12)
-    pclass = BELOW_NORMAL_PRIORITY_CLASS;
-  else if (pri <= 18)
-    pclass = NORMAL_PRIORITY_CLASS;
-  else if (pri <= 24)
-    pclass = ABOVE_NORMAL_PRIORITY_CLASS;
-  else if (pri <= 30)
-    pclass = HIGH_PRIORITY_CLASS;
+  else if ((p->sched_policy == SCHED_FIFO || p->sched_policy == SCHED_RR)
+           && valid_sched_parameters (param))
+    /* Realtime policy, apply requested priority. */
+    pclass = schedprio_to_winprio (param->sched_priority);
   else
-    pclass = REALTIME_PRIORITY_CLASS;
-
-  localpid = pid ? pid : getpid ();
-
-  pinfo p (localpid);
-
-  /* set the class */
-
-  if (!p)
     {
-      set_errno (ESRCH);
+      set_errno (EINVAL);
       return -1;
     }
-  process = OpenProcess (PROCESS_SET_INFORMATION, FALSE, p->dwProcessId);
+  HANDLE process = OpenProcess (PROCESS_SET_INFORMATION |
+				PROCESS_QUERY_LIMITED_INFORMATION,
+				FALSE, p->dwProcessId);
   if (!process)
     {
       set_errno (ESRCH);
       return -1;
     }
-  if (!SetPriorityClass (process, pclass))
+  if (!set_and_check_winprio (process, pclass))
     {
       CloseHandle (process);
       set_errno (EPERM);
@@ -272,6 +248,26 @@ sched_setparam (pid_t pid, const struct sched_param *param)
   CloseHandle (process);
 
   return 0;
+}
+
+int
+sched_setparam (pid_t pid, const struct sched_param *param)
+{
+  if (!(pid >= 0 && param && (param->sched_priority == 0 ||
+      valid_sched_parameters(param))))
+    {
+      set_errno (EINVAL);
+      return -1;
+    }
+
+  pinfo p (pid ? pid : getpid ());
+  if (!p)
+    {
+      set_errno (ESRCH);
+      return -1;
+    }
+
+  return sched_setparam_pinfo (p, param);
 }
 
 /* POSIX thread priorities loosely compare to Windows thread base priorities.
@@ -399,9 +395,34 @@ int
 sched_setscheduler (pid_t pid, int policy,
 		    const struct sched_param *param)
 {
-  /* on win32, you can't change the scheduler. Doh! */
-  set_errno (ENOSYS);
-  return -1;
+  int new_policy = policy & ~SCHED_RESET_ON_FORK;
+  if (!(pid >= 0 && param &&
+      (((new_policy == SCHED_OTHER || new_policy == SCHED_BATCH
+      || new_policy == SCHED_IDLE) && param->sched_priority == 0)
+      || ((new_policy == SCHED_FIFO || new_policy == SCHED_RR)
+      && valid_sched_parameters(param)))))
+    {
+      set_errno (EINVAL);
+      return -1;
+    }
+
+  pinfo p (pid ? pid : getpid ());
+  if (!p)
+    {
+      set_errno (ESRCH);
+      return -1;
+    }
+
+  int prev_policy = p->sched_policy;
+  p->sched_policy = new_policy;
+  if (sched_setparam_pinfo (p, param))
+    {
+      p->sched_policy = prev_policy;
+      return -1;
+    }
+
+  p->sched_reset_on_fork = !!(policy & SCHED_RESET_ON_FORK);
+  return 0;
 }
 
 /* yield the cpu */
@@ -415,9 +436,6 @@ sched_yield ()
 int
 sched_getcpu ()
 {
-  if (!wincap.has_processor_groups ())
-    return (int) GetCurrentProcessorNumber ();
-
   PROCESSOR_NUMBER pnum;
 
   GetCurrentProcessorNumberEx (&pnum);
@@ -519,33 +537,18 @@ whichgroup (size_t sizeof_set, const cpu_set_t *set)
 int
 sched_get_thread_affinity (HANDLE thread, size_t sizeof_set, cpu_set_t *set)
 {
+  GROUP_AFFINITY ga;
   int status = 0;
 
   if (thread)
     {
       memset (set, 0, sizeof_set);
-      if (wincap.has_processor_groups () && __get_group_count () > 1)
+      if (!GetThreadGroupAffinity (thread, &ga))
 	{
-	  GROUP_AFFINITY ga;
-
-	  if (!GetThreadGroupAffinity (thread, &ga))
-	    {
-	      status = geterrno_from_win_error (GetLastError (), EPERM);
-	      goto done;
-	    }
-	  setgroup (sizeof_set, set, ga.Group, ga.Mask);
+	  status = geterrno_from_win_error (GetLastError (), EPERM);
+	  goto done;
 	}
-      else
-	{
-	  THREAD_BASIC_INFORMATION tbi;
-
-	  status = NtQueryInformationThread (thread, ThreadBasicInformation,
-					     &tbi, sizeof (tbi), NULL);
-	  if (NT_SUCCESS (status))
-	    setgroup (sizeof_set, set, 0, tbi.AffinityMask);
-	  else
-	    status = geterrno_from_nt_status (status);
-	}
+      setgroup (sizeof_set, set, ga.Group, ga.Mask);
     }
   else
     status = ESRCH;
@@ -569,6 +572,8 @@ __sched_getaffinity_sys (pid_t pid, size_t sizeof_set, cpu_set_t *set)
                              p->dwProcessId) : GetCurrentProcess ();
       KAFFINITY procmask;
       KAFFINITY sysmask;
+      USHORT groupcount = __CPU_GROUPMAX;
+      USHORT grouparray[__CPU_GROUPMAX];
 
       if (!GetProcessAffinityMask (process, &procmask, &sysmask))
         {
@@ -576,23 +581,15 @@ __sched_getaffinity_sys (pid_t pid, size_t sizeof_set, cpu_set_t *set)
           goto done;
         }
       memset (set, 0, sizeof_set);
-      if (wincap.has_processor_groups () && __get_group_count () > 1)
-        {
-          USHORT groupcount = __CPU_GROUPMAX;
-          USHORT grouparray[__CPU_GROUPMAX];
+      if (!GetProcessGroupAffinity (process, &groupcount, grouparray))
+	{
+	  status = geterrno_from_win_error (GetLastError (), EPERM);
+	  goto done;
+	}
 
-          if (!GetProcessGroupAffinity (process, &groupcount, grouparray))
-            {
-	      status = geterrno_from_win_error (GetLastError (), EPERM);
-	      goto done;
-	    }
-
-	  KAFFINITY miscmask = groupmask (__get_cpus_per_group ());
-	  for (int i = 0; i < groupcount; i++)
-	    setgroup (sizeof_set, set, grouparray[i], miscmask);
-        }
-      else
-        setgroup (sizeof_set, set, 0, procmask);
+      KAFFINITY miscmask = groupmask (__get_cpus_per_group ());
+      for (int i = 0; i < groupcount; i++)
+	setgroup (sizeof_set, set, grouparray[i], miscmask);
     }
   else
     status = ESRCH;
@@ -624,41 +621,24 @@ sched_getaffinity (pid_t pid, size_t sizeof_set, cpu_set_t *set)
 int
 sched_set_thread_affinity (HANDLE thread, size_t sizeof_set, const cpu_set_t *set)
 {
+  GROUP_AFFINITY ga;
   int group = whichgroup (sizeof_set, set);
   int status = 0;
 
   if (thread)
     {
-      if (wincap.has_processor_groups () && __get_group_count () > 1)
+      if (group < 0)
 	{
-	  GROUP_AFFINITY ga;
-
-	  if (group < 0)
-	    {
-	      status = EINVAL;
-	      goto done;
-	    }
-	  memset (&ga, 0, sizeof (ga));
-	  ga.Mask = getgroup (sizeof_set, set, group);
-	  ga.Group = group;
-	  if (!SetThreadGroupAffinity (thread, &ga, NULL))
-	    {
-	      status = geterrno_from_win_error (GetLastError (), EPERM);
-	      goto done;
-	    }
+	  status = EINVAL;
+	  goto done;
 	}
-      else
+      memset (&ga, 0, sizeof (ga));
+      ga.Mask = getgroup (sizeof_set, set, group);
+      ga.Group = group;
+      if (!SetThreadGroupAffinity (thread, &ga, NULL))
 	{
-	  if (group != 0)
-	    {
-	      status = EINVAL;
-	      goto done;
-	    }
-	  if (!SetThreadAffinityMask (thread, getgroup (sizeof_set, set, 0)))
-	    {
-	      status = geterrno_from_win_error (GetLastError (), EPERM);
-	      goto done;
-	    }
+	  status = geterrno_from_win_error (GetLastError (), EPERM);
+	  goto done;
 	}
     }
   else
@@ -671,6 +651,8 @@ done:
 int
 sched_setaffinity (pid_t pid, size_t sizeof_set, const cpu_set_t *set)
 {
+  USHORT groupcount = __CPU_GROUPMAX;
+  USHORT grouparray[__CPU_GROUPMAX];
   int group = whichgroup (sizeof_set, set);
   HANDLE process = 0;
   int status = 0;
@@ -681,49 +663,30 @@ sched_setaffinity (pid_t pid, size_t sizeof_set, const cpu_set_t *set)
       process = pid && pid != myself->pid ?
 		OpenProcess (PROCESS_SET_INFORMATION, FALSE,
 			     p->dwProcessId) : GetCurrentProcess ();
-      if (wincap.has_processor_groups () && __get_group_count () > 1)
+      if (!GetProcessGroupAffinity (process, &groupcount, grouparray))
 	{
-	  USHORT groupcount = __CPU_GROUPMAX;
-	  USHORT grouparray[__CPU_GROUPMAX];
-
-	  if (!GetProcessGroupAffinity (process, &groupcount, grouparray))
-	    {
-	      status = geterrno_from_win_error (GetLastError (), EPERM);
-	      goto done;
-	    }
-	  if (group < 0)
-	    {
-	      status = EINVAL;
-	      goto done;
-	    }
-	  if (groupcount == 1 && grouparray[0] == group)
-	    {
-	      if (!SetProcessAffinityMask (process, getgroup (sizeof_set, set, group)))
-		status = geterrno_from_win_error (GetLastError (), EPERM);
-	      goto done;
-	    }
-
-	  /* If we get here, the user is trying to add the process to another
-             group or move it from current group to another group.  These ops
-             are not allowed by Windows.  One has to move one or more of the
-             process' threads to the new group(s) one by one.  Here, we bail.
-          */
+	  status = geterrno_from_win_error (GetLastError (), EPERM);
+	  goto done;
+	}
+      if (group < 0)
+	{
 	  status = EINVAL;
 	  goto done;
 	}
-      else
+      if (groupcount == 1 && grouparray[0] == group)
 	{
-	  if (group != 0)
-	    {
-	      status = EINVAL;
-	      goto done;
-	    }
-	  if (!SetProcessAffinityMask (process, getgroup (sizeof_set, set, 0)))
-	    {
-	      status = geterrno_from_win_error (GetLastError (), EPERM);
-	      goto done;
-	    }
+	  if (!SetProcessAffinityMask (process, getgroup (sizeof_set, set, group)))
+	    status = geterrno_from_win_error (GetLastError (), EPERM);
+	  goto done;
 	}
+
+      /* If we get here, the user is trying to add the process to another
+	 group or move it from current group to another group.  These ops
+	 are not allowed by Windows.  One has to move one or more of the
+	 process' threads to the new group(s) one by one.  Here, we bail.
+      */
+      status = EINVAL;
+      goto done;
     }
   else
     status = ESRCH;
@@ -741,4 +704,17 @@ done:
   return 0;
 }
 
+cpu_set_t *
+__cpuset_alloc (int num)
+{
+  return (cpu_set_t *) malloc (CPU_ALLOC_SIZE(num));
+}
+
+void
+__cpuset_free (cpu_set_t *set)
+{
+  free (set);
+}
+
+EXPORT_ALIAS (sched_yield, pthread_yield)
 } /* extern C */

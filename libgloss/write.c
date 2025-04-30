@@ -21,12 +21,13 @@ extern int  outbyte (char x);
  *          stdout and stderr are the same. Since we have no filesystem,
  *          open will only return an error.
  */
-int
+_READ_WRITE_RETURN_TYPE
 write (int fd,
-       char *buf,
-       int nbytes)
+       const void *buf_,
+       size_t nbytes)
 {
   int i;
+  const char *buf = buf_;
 
   for (i = 0; i < nbytes; i++) {
     if (*(buf + i) == '\n') {

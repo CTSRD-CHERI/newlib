@@ -14,11 +14,11 @@ extern "C"
 #endif
 
 /* Not defined in main time.h */
-int __cdecl clock_setres (clockid_t, struct timespec *);
+int clock_setres (clockid_t, struct timespec *);
 
 /* GNU extensions. */
-time_t __cdecl timelocal (struct tm *);
-time_t __cdecl timegm (struct tm *);
+time_t timelocal (struct tm *);
+time_t timegm (struct tm *);
 
 #define TIMER_RELTIME  0 /* For compatibility with HP/UX, Solaris, others? */
 
@@ -34,6 +34,12 @@ extern long timezone __asm__ (_SYMSTR (_timezone));
 #endif
 
 #endif /* __SVID_VISIBLE || __XSI_VISIBLE */
+
+#if __ISO_C_VISIBLE >= 2011
+#define TIME_UTC 1
+
+extern int timespec_get (struct timespec *, int);
+#endif
 
 #ifdef __cplusplus
 }

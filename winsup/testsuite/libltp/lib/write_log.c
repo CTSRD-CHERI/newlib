@@ -90,7 +90,7 @@
 /*#define PATH_MAX pathconf("/", _PC_PATH_MAX)*/
 #endif
 
-char	Wlog_Error_String[256];
+char	Wlog_Error_String[2048];
 
 #if __STDC__
 static int	wlog_rec_pack(struct wlog_rec *wrec, char *buf, int flag);
@@ -115,10 +115,11 @@ static int	wlog_rec_unpack();
  */
 
 int
-wlog_open(wfile, trunc, mode)
-struct wlog_file	*wfile;
-int			trunc;
-int			mode;
+wlog_open(
+	struct wlog_file *wfile,
+	int trunc,
+	int mode
+)
 {
 	int	omask, oflags;
 
@@ -137,7 +138,7 @@ int			mode;
 	umask(omask);
 
 	if (wfile->w_afd == -1) {
-		sprintf(Wlog_Error_String,
+		snprintf(Wlog_Error_String, sizeof Wlog_Error_String,
 			"Could not open write_log - open(%s, %#o, %#o) failed:  %s\n",
 			wfile->w_file, oflags, mode, strerror(errno));
 		return -1;
@@ -149,7 +150,7 @@ int			mode;
 
 	oflags = O_RDWR;
 	if ((wfile->w_rfd = open(wfile->w_file, oflags)) == -1) {
-		sprintf(Wlog_Error_String,
+		snprintf(Wlog_Error_String, sizeof Wlog_Error_String,
 			"Could not open write log - open(%s, %#o) failed:  %s\n",
 			wfile->w_file, oflags, strerror(errno));
 		close(wfile->w_afd);
@@ -166,8 +167,7 @@ int			mode;
  */
 
 int
-wlog_close(wfile)
-struct wlog_file	*wfile;
+wlog_close(struct wlog_file *wfile)
 {
 	close(wfile->w_afd);
 	close(wfile->w_rfd);
@@ -201,10 +201,11 @@ struct wlog_file	*wfile;
  */
 
 int
-wlog_record_write(wfile, wrec, offset)
-struct wlog_file	*wfile;
-struct wlog_rec		*wrec;
-long			offset;
+wlog_record_write(
+	struct wlog_file *wfile,
+	struct wlog_rec *wrec,
+	long offset
+)
 {
     int		reclen;
     char	wbuf[WLOG_REC_MAX_SIZE + 2];
@@ -249,14 +250,16 @@ long			offset;
  */
 
 int
-wlog_scan_backward(wfile, nrecs, func, data)
-struct wlog_file	*wfile;
-int 			nrecs;
-int 			(*func)();
-long			data;
+wlog_scan_backward(
+	struct wlog_file *wfile,
+	int nrecs,
+	int (*func)(struct wlog_rec*, long),
+	long data
+)
 {
-	int			fd, leftover, nbytes, offset, recnum, reclen, rval;
-	char    		buf[BSIZE*32], *bufend, *cp, *bufstart;
+	int		fd, leftover, nbytes, recnum, reclen, rval;
+	off_t		offset;
+	char		buf[BSIZE*32], *bufend, *cp, *bufstart;
 	char		albuf[WLOG_REC_MAX_SIZE];
 	struct wlog_rec	wrec;
 
@@ -295,9 +298,10 @@ long			data;
 		nbytes = read(fd, bufstart, bufend - bufstart - leftover);
 
 		if (nbytes == -1) {
-			sprintf(Wlog_Error_String,
-				"Could not read history file at offset %d - read(%d, %#o, %d) failed:  %s\n",
-				offset, fd, (int)bufstart,
+			snprintf(Wlog_Error_String, sizeof Wlog_Error_String,
+				"Could not read history file at offset %jd - "
+				"read(%d, %#to, %td) failed:  %s\n",
+				(intmax_t)offset, fd, (ptrdiff_t)bufstart,
 				bufend - bufstart - leftover, strerror(errno));
 			return -1;
 		}
@@ -379,10 +383,11 @@ long			data;
  */
 
 static int
-wlog_rec_pack(wrec, buf, flag)
-struct wlog_rec	*wrec;
-char		*buf;
-int             flag;
+wlog_rec_pack(
+	struct wlog_rec	*wrec,
+	char *buf,
+	int flag
+)
 {
 	char			*file, *host, *pattern;
 	struct wlog_rec_disk	*wrecd;
@@ -428,9 +433,10 @@ int             flag;
 }
 
 static int
-wlog_rec_unpack(wrec, buf)
-struct wlog_rec	*wrec;
-char		*buf;
+wlog_rec_unpack(
+	struct wlog_rec *wrec,
+	char *buf
+)
 {
 	char			*file, *host, *pattern;
 	struct wlog_rec_disk	*wrecd;

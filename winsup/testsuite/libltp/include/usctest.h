@@ -159,7 +159,7 @@ struct usc_errno_t {
  **********************************************************************/
 #ifdef  _USC_LIB_
 
-extern int TEST_RETURN;
+extern long TEST_RETURN;
 extern int TEST_ERRNO;
 
 #else
@@ -173,7 +173,7 @@ extern struct usc_errno_t TEST_VALID_ENO[USC_MAX_ERRNO];
  * Globals for returning the return code and errno from the system call
  * test macros.
  ***********************************************************************/
-extern int TEST_RETURN;
+extern long TEST_RETURN;
 extern int TEST_ERRNO;
 
 /***********************************************************************
@@ -198,7 +198,7 @@ struct tblock {
  * in the macros that follow.
  ***********************************************************************/
 extern struct tblock tblock;
-extern void STD_go();
+extern void STD_go(int);
 extern int (*_TMP_FUNC)(void);
 extern void STD_opts_help();
 
@@ -210,7 +210,7 @@ extern void STD_opts_help();
  *	SCALL = system call and parameters to execute
  *
  ***********************************************************************/
-#define TEST(SCALL) TEST_RETURN = (unsigned) SCALL;  TEST_ERRNO=errno;
+#define TEST(SCALL) TEST_RETURN = (long) SCALL;  TEST_ERRNO=errno;
 
 /***********************************************************************
  * TEST_VOID: calls a system call

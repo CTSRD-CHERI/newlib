@@ -301,10 +301,19 @@ first_day (int year)
   return ret;
 }
 
-/* This simplifies the calls to conv_num enormously. */
+/* This simplifies the calls to __conv_num enormously. */
 #define ALT_DIGITS	((alt_format & ALT_O) ? *alt_digits : NULL)
 
-static const unsigned char *conv_num(const unsigned char *, int *, uint, uint,
+#define conv_num(_b,_d,_l,_u,_a)	\
+		({							\
+		  const unsigned char *_ret;				\
+		  _ret = __conv_num((_b),(_d),(_l),(_u),(_a));		\
+		  if (!_ret)						\
+		    return NULL;					\
+		  _ret;							\
+		})
+
+static const unsigned char *__conv_num(const unsigned char *, int *, uint, uint,
 				     alt_digits_t *);
 static const unsigned char *find_string(const unsigned char *, int *,
 					const char * const *,
@@ -326,6 +335,8 @@ __strptime(const char *buf, const char *fmt, struct tm *tm,
 	const char *new_fmt;
 	uint ulim;
 	int ymd = 0;
+	bool got_I = false;
+	bool got_pm = false;
 
 	bp = (const unsigned char *)buf;
 	const struct lc_time_T *_CurrentTimeLocale = __get_time_locale (locale);
@@ -524,20 +535,22 @@ literal:
 
 		case 'k':	/* The hour (24-hour clock representation). */
 			LEGAL_ALT(0);
-			/* FALLTHROUGH */
+			fallthrough;
 		case 'H':
 			LEGAL_ALT(ALT_O);
 			bp = conv_num(bp, &tm->tm_hour, 0, 23, ALT_DIGITS);
+			got_I = false;
 			continue;
 
 		case 'l':	/* The hour (12-hour clock representation). */
 			LEGAL_ALT(0);
-			/* FALLTHROUGH */
+			fallthrough;
 		case 'I':
 			LEGAL_ALT(ALT_O);
 			bp = conv_num(bp, &tm->tm_hour, 1, 12, ALT_DIGITS);
 			if (tm->tm_hour == 12)
 				tm->tm_hour = 0;
+			got_I = true;
 			continue;
 
 		case 'j':	/* The day of year. */
@@ -564,10 +577,16 @@ literal:
 		case 'p':	/* The locale's equivalent of AM/PM. */
 			bp = find_string(bp, &i, _ctloc(am_pm), NULL, 2,
 					 locale);
-			if (tm->tm_hour > 11)
-				return NULL;
-			tm->tm_hour += i * 12;
+			got_pm = (i == 1);
 			LEGAL_ALT(0);
+			continue;
+
+		case 'q':	/* The quarter year. GNU extension. */
+			LEGAL_ALT(0);
+			i = 1;
+			bp = conv_num(bp, &i, 1, 4, ALT_DIGITS);
+			tm->tm_mon = (i - 1)*3;
+			ymd |= SET_MON;
 			continue;
 
 		case 'S':	/* The seconds. */
@@ -655,7 +674,7 @@ literal:
 			got_eoff = 0;
 			continue;
 
-		case 'y':	/* The year within 100 years of the epoch. */
+		case 'y':	/* The year within 100 years of the century or era. */
 			/* LEGAL_ALT(ALT_E | ALT_O); */
 			ymd |= SET_YEAR;
 			if ((alt_format & ALT_E) && *era_info)
@@ -703,8 +722,8 @@ literal:
 				const unsigned char *ep;
 
 				ep = find_string(bp, &i,
-					       	 (const char * const *)tzname,
-					       	  NULL, 2, locale);
+						 (const char * const *)tzname,
+						  NULL, 2, locale);
 				if (ep != NULL) {
 					tm->tm_isdst = i;
 #ifdef TM_GMTOFF
@@ -734,7 +753,11 @@ literal:
 		default:	/* Unknown/unsupported conversion. */
 			return NULL;
 		}
+
 	}
+
+	if (got_I && got_pm)
+	  tm->tm_hour += 12;
 
 	if (bp && (era || got_eoff))
 	  {
@@ -750,7 +773,7 @@ literal:
 	    /* Check if year falls into the era.  If not, it's an
 	       invalid combination of era and offset. */
 	    if (era->start.tm_year > tm->tm_year
-	    	|| era->end.tm_year < tm->tm_year)
+		|| era->end.tm_year < tm->tm_year)
 	      return NULL;
 	    tm->tm_year -= TM_YEAR_BASE;
 	  }
@@ -834,7 +857,7 @@ strptime (const char *__restrict buf, const char *__restrict fmt,
 }
 
 static const unsigned char *
-conv_num(const unsigned char *buf, int *dest, uint llim, uint ulim,
+__conv_num(const unsigned char *buf, int *dest, uint llim, uint ulim,
 	 alt_digits_t *alt_digits)
 {
 	uint result = 0;

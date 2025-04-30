@@ -32,6 +32,7 @@
 	.extern _impure_ptr
 
 	/* Handle return from syscall.  */
+	.section .text.__SC_ret, "ax"
 	.global	__SC_ret
 	.type	__SC_ret,@function
 	.func
@@ -42,6 +43,7 @@ __SC_ret:
 	/* Invert return code and store to errno (first int in _impure_ptr).  */
 	rsb	r14, r14, 0
 	ldi32	r1, _impure_ptr
+	lbbo	r1, r1, 0, 4
 	sbbo	r14, r1, 0, 4
 	/* Return -1 (for both int32_t or int64_t).  */
 	fill	r14, 8
@@ -51,6 +53,7 @@ __SC_ret_skip_errno_set:
 	.endfunc
 
 .macro	SC	fname, id
+	.section .text.\fname, "ax"
 	.global	\fname
 	.type	\fname,@function
 	.func
@@ -61,13 +64,10 @@ __SC_ret_skip_errno_set:
 	.endfunc
 .endm
 
-	.text
-
 	/* Syscalls are used only by simulator.  Real HW
 	   users use other methods for communicating with
 	   the host - remoteproc, rpmsg, shared memory.  */
 	SC	_exit, SYS_exit
-	SC	_open, SYS_open
 	SC	_close, SYS_close
 	SC	_read, SYS_read
 	SC	_write, SYS_write
@@ -76,3 +76,20 @@ __SC_ret_skip_errno_set:
 	SC	_getpid, SYS_getpid
 	SC	_kill, SYS_kill
 	SC	_fstat, SYS_fstat
+
+
+	/* _open is special because it has VA declaration. */
+	.section .text._open, "ax"
+	.global	_open
+	.type	_open,@function
+	.func
+_open:
+	/* Pop the second and third argument from stack, per VA ABI.
+	   Thus simulator can get all arguments from registers
+	   for any supported syscall.  */
+	lbbo    r16, sp, 4, 4
+	lbbo    r15, sp, 0, 4
+	ldi	r1, SYS_open
+	halt
+	jmp	__SC_ret
+	.endfunc

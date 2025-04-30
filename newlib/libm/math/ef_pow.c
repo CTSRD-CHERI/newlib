@@ -14,6 +14,7 @@
  */
 
 #include "fdlibm.h"
+#include "math_config.h"
 
 #if __OBSOLETE_MATH
 #ifdef __v810__
@@ -32,8 +33,6 @@ zero    =  0.0,
 one	=  1.0,
 two	=  2.0,
 two24	=  16777216.0,	/* 0x4b800000 */
-huge	=  1.0e30,
-tiny    =  1.0e-30,
 	/* poly coefs for (3/2)*(log(x)-2s-2/3*s**3 */
 L1  =  6.0000002384e-01, /* 0x3f19999a */
 L2  =  4.2857143283e-01, /* 0x3edb6db7 */
@@ -51,8 +50,8 @@ lg2_h  =  6.93145752e-01, /* 0x3f317200 */
 lg2_l  =  1.42860654e-06, /* 0x35bfbe8c */
 ovt =  4.2995665694e-08, /* -(128-log2(ovfl+.5ulp)) */
 cp    =  9.6179670095e-01, /* 0x3f76384f =2/(3ln2) */
-cp_h  =  9.6179199219e-01, /* 0x3f763800 =head of cp */
-cp_l  =  4.7017383622e-06, /* 0x369dc3a0 =tail of cp_h */
+cp_h  =  9.6191406250e-01f, /* 0x3f764000 =12b of cp */
+cp_l  = -1.1736857402e-04f, /* 0xb8f623c6 =tail of cp_h */
 ivln2    =  1.4426950216e+00, /* 0x3fb8aa3b =1/ln2 */
 ivln2_h  =  1.4426879883e+00, /* 0x3fb8aa00 =16b 1/ln2*/
 ivln2_l  =  7.0526075433e-06; /* 0x36eca570 =1/ln2 tail*/
@@ -74,13 +73,16 @@ ivln2_l  =  7.0526075433e-06; /* 0x36eca570 =1/ln2 tail*/
 	ix = hx&0x7fffffff;  iy = hy&0x7fffffff;
 
     /* y==zero: x**0 = 1 */
-	if(FLT_UWORD_IS_ZERO(iy)) return one; 	
+	if(FLT_UWORD_IS_ZERO(iy)) {
+	    if (issignalingf_inline(x)) return x + y;
+	    return one;
+	}
 
     /* x|y==NaN return NaN unless x==1 then return 1 */
 	if(FLT_UWORD_IS_NAN(ix) ||
 	   FLT_UWORD_IS_NAN(iy)) {
-	    if(ix==0x3f800000) return one;
-	    else return nanf("");
+	    if(hx==0x3f800000 && !issignalingf_inline(y)) return one;
+	    else return x + y;
 	}
 
     /* determine if y is an odd int when x < 0
@@ -136,8 +138,8 @@ ivln2_l  =  7.0526075433e-06; /* 0x36eca570 =1/ln2 tail*/
     /* |y| is huge */
 	if(iy>0x4d000000) { /* if |y| > 2**27 */
 	/* over/underflow if x is not close to one */
-	    if(ix<0x3f7ffff8) return (hy<0)? huge*huge:tiny*tiny;
-	    if(ix>0x3f800007) return (hy>0)? huge*huge:tiny*tiny;
+	    if(ix<0x3f7ffff4) return (hy<0)? __math_oflowf(0):__math_uflowf(0);
+	    if(ix>0x3f800007) return (hy>0)? __math_oflowf(0):__math_uflowf(0);
 	/* now |1-x| is tiny <= 2**-20, suffice to compute 
 	   log(x) by x-x^2/2+x^3/3-x^4/4 */
 	    t = ax-1;		/* t has 20 trailing zeros */
@@ -171,7 +173,8 @@ ivln2_l  =  7.0526075433e-06; /* 0x36eca570 =1/ln2 tail*/
 	    GET_FLOAT_WORD(is,s_h);
 	    SET_FLOAT_WORD(s_h,is&0xfffff000);
 	/* t_h=ax+bp[k] High */
-	    SET_FLOAT_WORD(t_h,((ix>>1)|0x20000000)+0x0040000+(k<<21));
+        is = ((ix >> 1) & 0xfffff000U) | 0x20000000;
+        SET_FLOAT_WORD(t_h, is + 0x00400000 + (k << 21));
 	    t_l = ax - (t_h-bp[k]);
 	    s_l = v*((u-s_h*t_h)-s_h*t_l);
 	/* compute log(ax) */
@@ -215,14 +218,14 @@ ivln2_l  =  7.0526075433e-06; /* 0x36eca570 =1/ln2 tail*/
 	i = j&0x7fffffff;
 	if (j>0) {
 	    if (i>FLT_UWORD_EXP_MAX)
-	        return s*huge*huge;			/* overflow */
+	        return __math_oflowf(s<0);			/* overflow */
 	    else if (i==FLT_UWORD_EXP_MAX)
-	        if(p_l+ovt>z-p_h) return s*huge*huge;	/* overflow */
+	        if(p_l+ovt>z-p_h) return __math_oflowf(s<0);	/* overflow */
         } else {
 	    if (i>FLT_UWORD_EXP_MIN)
-	        return s*tiny*tiny;			/* underflow */
+	        return __math_uflowf(s<0);			/* underflow */
 	    else if (i==FLT_UWORD_EXP_MIN)
-	        if(p_l<=z-p_h) return s*tiny*tiny;	/* underflow */
+		if(p_l<=z-p_h) return __math_uflowf(s<0);	/* underflow */
 	}
     /*
      * compute 2**(p_h+p_l)
@@ -239,7 +242,7 @@ ivln2_l  =  7.0526075433e-06; /* 0x36eca570 =1/ln2 tail*/
 	} 
 	t = p_l+p_h;
 	GET_FLOAT_WORD(is,t);
-	SET_FLOAT_WORD(t,is&0xfffff000);
+	SET_FLOAT_WORD(t,is&0xffff8000);
 	u = t*lg2_h;
 	v = (p_l-(t-p_h))*lg2+t*lg2_l;
 	z = u+v;

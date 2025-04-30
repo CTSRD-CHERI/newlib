@@ -6,20 +6,6 @@ This software is a copyrighted work licensed under the terms of the
 Cygwin license.  Please consult the file "CYGWIN_LICENSE" for
 details. */
 
-#define fstat __FOOfstat__
-#define lstat __FOOlstat__
-//#define stat __FOOstat__
-#define _close __FOO_close__
-#define _lseek __FOO_lseek__
-#define _open __FOO_open__
-#define _read __FOO_read__
-#define _write __FOO_write__
-#define _open64 __FOO_open64__
-#define _lseek64 __FOO_lseek64__
-#define _fstat64 __FOO_fstat64__
-#define pread __FOO_pread
-#define pwrite __FOO_pwrite
-
 #include "winsup.h"
 #include "miscfuncs.h"
 #include <sys/stat.h>
@@ -40,12 +26,6 @@ details. */
 #include <iptypes.h>
 #include "ntdll.h"
 
-#undef fstat
-#undef lstat
-//#undef stat
-#undef pread
-#undef pwrite
-
 #include <cygwin/version.h>
 #include "cygerrno.h"
 #include "perprocess.h"
@@ -63,25 +43,16 @@ details. */
 #include "sync.h"
 #include "child_info.h"
 #include <cygwin/fs.h>  /* needed for RENAME_NOREPLACE */
+#include <sys/reent.h>  /* needed for _fwalk_sglue() declaration */
 
-#undef _close
-#undef _lseek
-#undef _open
-#undef _read
-#undef _write
-#undef _open64
-#undef _lseek64
-#undef _fstat64
-
-static int __stdcall mknod_worker (const char *, mode_t, mode_t, _major_t,
-				   _minor_t);
+static int mknod_worker (path_conv &, mode_t, _major_t, _minor_t);
 
 /* Close all files and process any queued deletions.
    Lots of unix style applications will open a tmp file, unlink it,
    but never call close.  This function is called by _exit to
    ensure we don't leave any such files lying around.  */
 
-void __stdcall
+void
 close_all_files (bool norelease)
 {
   cygheap->fdtab.lock ();
@@ -96,7 +67,7 @@ close_all_files (bool norelease)
       if (cfd >= 0)
 	{
 	  debug_only_printf ("closing fd %d", i);
-	  if (i == 2)
+	  if (i == 2 && cfd->get_dev () != FH_PIPEW)
 	    DuplicateHandle (GetCurrentProcess (), cfd->get_output_handle (),
 			     GetCurrentProcess (), &h,
 			     0, false, DUPLICATE_SAME_ACCESS);
@@ -109,10 +80,51 @@ close_all_files (bool norelease)
   if (!have_execed && cygheap->ctty)
     cygheap->close_ctty ();
 
-  fhandler_base_overlapped::flush_all_async_io ();
   if (h)
     SetStdHandle (STD_ERROR_HANDLE, h);
   cygheap->fdtab.unlock ();
+}
+
+/* Close or set the close-on-exec flag for all open file descriptors
+   from firstfd to lastfd.  CLOSE_RANGE_UNSHARE is not supported.
+   Available on FreeBSD since 13 and Linux since 5.9 */
+extern "C" int
+close_range (unsigned int firstfd, unsigned int lastfd, int flags)
+{
+  pthread_testcancel ();
+
+  if (!(firstfd <= lastfd && !(flags & ~CLOSE_RANGE_CLOEXEC)))
+    {
+      set_errno (EINVAL);
+      return -1;
+    }
+
+  cygheap->fdtab.lock ();
+
+  unsigned int size = (lastfd < cygheap->fdtab.size ? lastfd + 1 :
+		      cygheap->fdtab.size);
+
+  for (unsigned int i = firstfd; i < size; i++)
+    {
+      cygheap_fdget cfd ((int) i, false, false);
+      if (cfd < 0)
+	continue;
+
+      if (flags & CLOSE_RANGE_CLOEXEC)
+	{
+	  syscall_printf ("set FD_CLOEXEC on fd %u", i);
+	  cfd->fcntl (F_SETFD, FD_CLOEXEC);
+	}
+      else
+	{
+	  syscall_printf ("closing fd %u", i);
+	  cfd->close_with_arch ();
+	  cfd.release ();
+	}
+    }
+
+  cygheap->fdtab.unlock ();
+  return 0;
 }
 
 extern "C" int
@@ -144,7 +156,7 @@ extern "C" int
 dup2 (int oldfd, int newfd)
 {
   int res;
-  if (newfd >= OPEN_MAX_MAX || newfd < 0)
+  if (newfd >= OPEN_MAX || newfd < 0)
     {
       set_errno (EBADF);
       res = -1;
@@ -165,7 +177,7 @@ extern "C" int
 dup3 (int oldfd, int newfd, int flags)
 {
   int res;
-  if (newfd >= OPEN_MAX_MAX)
+  if (newfd >= OPEN_MAX)
     {
       set_errno (EBADF);
       res = -1;
@@ -328,14 +340,14 @@ try_to_bin (path_conv &pc, HANDLE &fh, ACCESS_MASK access, ULONG flags)
   else
     {
       /* Create unique filename.  Start with a dot, followed by "cyg"
-	 transposed into the Unicode low surrogate area (U+dc00) on file
-	 systems supporting Unicode (except Samba), followed by the inode
-	 number in hex, followed by a path hash in hex.  The combination
-	 allows to remove multiple hardlinks to the same file. */
+	 transposed to the Unicode private use area in the U+f700 area
+	 on file systems supporting Unicode (except Samba), followed by
+	 the inode number in hex, followed by a path hash in hex.  The
+	 combination allows to remove multiple hardlinks to the same file. */
       RtlAppendUnicodeToString (&recycler,
 				(pc.fs_flags () & FILE_UNICODE_ON_DISK
 				 && !pc.fs_is_samba ())
-				? L".\xdc63\xdc79\xdc67" : L".cyg");
+				? L".\xf763\xf779\xf767" : L".cyg");
       pfii = (PFILE_INTERNAL_INFORMATION) infobuf;
       status = NtQueryInformationFile (fh, &io, pfii, sizeof *pfii,
 				       FileInternalInformation);
@@ -562,7 +574,7 @@ try_to_bin (path_conv &pc, HANDLE &fh, ACCESS_MASK access, ULONG flags)
     {
       /* In the remote case we need the full path, but recycler is only
 	 a relative path.  Convert to absolute path. */
-      RtlInitEmptyUnicodeString (&fname, (PCWSTR) tp.w_get (),
+      RtlInitEmptyUnicodeString (&fname, tp.w_get (),
 				 (NT_MAX_PATH - 1) * sizeof (WCHAR));
       RtlCopyUnicodeString (&fname, pc.get_nt_native_path ());
       RtlSplitUnicodePath (&fname, &fname, NULL);
@@ -605,9 +617,10 @@ check_dir_not_empty (HANDLE dir, path_conv &pc)
   IO_STATUS_BLOCK io;
   const ULONG bufsiz = 3 * sizeof (FILE_NAMES_INFORMATION)
 		       + 3 * NAME_MAX * sizeof (WCHAR);
-  PFILE_NAMES_INFORMATION pfni = (PFILE_NAMES_INFORMATION)
-				 alloca (bufsiz);
-  NTSTATUS status = NtQueryDirectoryFile (dir, NULL, NULL, 0, &io, pfni,
+  PFILE_NAMES_INFORMATION pfni_buf = (PFILE_NAMES_INFORMATION)
+				     alloca (bufsiz);
+  PFILE_NAMES_INFORMATION pfni;
+  NTSTATUS status = NtQueryDirectoryFile (dir, NULL, NULL, 0, &io, pfni_buf,
 					  bufsiz, FileNamesInformation,
 					  FALSE, NULL, TRUE);
   if (!NT_SUCCESS (status))
@@ -619,6 +632,7 @@ check_dir_not_empty (HANDLE dir, path_conv &pc)
   int cnt = 1;
   do
     {
+      pfni = pfni_buf;
       while (pfni->NextEntryOffset)
 	{
 	  if (++cnt > 2)
@@ -665,14 +679,38 @@ check_dir_not_empty (HANDLE dir, path_conv &pc)
 	  pfni = (PFILE_NAMES_INFORMATION) ((caddr_t) pfni + pfni->NextEntryOffset);
 	}
     }
-  while (NT_SUCCESS (NtQueryDirectoryFile (dir, NULL, NULL, 0, &io, pfni,
+  while (NT_SUCCESS (NtQueryDirectoryFile (dir, NULL, NULL, 0, &io, pfni_buf,
 					   bufsiz, FileNamesInformation,
 					   FALSE, NULL, FALSE)));
   return STATUS_SUCCESS;
 }
 
-static NTSTATUS
-_unlink_nt (path_conv &pc, bool shareable)
+static inline NTSTATUS
+_unlink_nt_post_dir_check (NTSTATUS status, POBJECT_ATTRIBUTES attr, const path_conv &pc)
+{
+  /* Check for existence of remote dirs after trying to delete them.
+     Two reasons:
+     - Sometimes SMB indicates failure when it really succeeds.
+     - Removing a directory on a Samba drive using an old Samba version
+       sometimes doesn't return an error, if the directory can't be removed
+       because it's not empty. */
+  if (pc.isremote ())
+    {
+      FILE_BASIC_INFORMATION fbi;
+      NTSTATUS q_status;
+
+      q_status = NtQueryAttributesFile (attr, &fbi);
+      if (!NT_SUCCESS (status) && q_status == STATUS_OBJECT_NAME_NOT_FOUND)
+          status = STATUS_SUCCESS;
+      else if (pc.fs_is_samba ()
+               && NT_SUCCESS (status) && NT_SUCCESS (q_status))
+          status = STATUS_DIRECTORY_NOT_EMPTY;
+    }
+  return status;
+}
+
+NTSTATUS
+unlink_nt (path_conv &pc, bool shareable)
 {
   NTSTATUS status;
   HANDLE fh, fh_ro = NULL;
@@ -696,28 +734,28 @@ _unlink_nt (path_conv &pc, bool shareable)
 
   pc.get_object_attr (attr, sec_none_nih);
 
-  /* First check if we can use POSIX unlink semantics: W10 1709++, local NTFS.
-     With POSIX unlink semantics the entire job gets MUCH easier and faster.
-     Just try to do it and if it fails, it fails. */
+  /* First check if we can use POSIX unlink semantics: W10 1709+, local NTFS.
+     For the OPEN_BY_FILE_ID flag, see MINIMAL_WIN_NTFS_FLAGS comment in
+     fs_info::update.  With POSIX unlink semantics the entire job gets MUCH
+     easier and faster.  Just try to do it and if it fails, it fails. */
   if (wincap.has_posix_unlink_semantics ()
-      && !pc.isremote () && pc.fs_is_ntfs ())
+      && !pc.isremote () && pc.fs_is_ntfs ()
+      && pc.has_attribute (FILE_SUPPORTS_OPEN_BY_FILE_ID))
     {
       FILE_DISPOSITION_INFORMATION_EX fdie;
 
-      if (pc.file_attributes () & FILE_ATTRIBUTE_READONLY)
+      /* POSIX unlink semantics are nice, but they still fail if the file has
+	 the R/O attribute set. If so, ignoring might be an option: W10 1809+
+	 Removing the file is very much a safe bet afterwards, so, no
+	 transaction. */
+      if ((pc.file_attributes () & FILE_ATTRIBUTE_READONLY)
+          && !wincap.has_posix_unlink_semantics_with_ignore_readonly ())
 	access |= FILE_WRITE_ATTRIBUTES;
       status = NtOpenFile (&fh, access, &attr, &io, FILE_SHARE_VALID_FLAGS,
 			   flags);
       if (!NT_SUCCESS (status))
 	goto out;
-      /* Why didn't the devs add a FILE_DELETE_IGNORE_READONLY_ATTRIBUTE
-	 flag just like they did with FILE_LINK_IGNORE_READONLY_ATTRIBUTE
-	 and FILE_LINK_IGNORE_READONLY_ATTRIBUTE???
-
-         POSIX unlink semantics are nice, but they still fail if the file
-	 has the R/O attribute set.  Removing the file is very much a safe
-	 bet afterwards, so, no transaction. */
-      if (pc.file_attributes () & FILE_ATTRIBUTE_READONLY)
+      if (access & FILE_WRITE_ATTRIBUTES)
 	{
 	  status = NtSetAttributesFile (fh, pc.file_attributes ()
 					    & ~FILE_ATTRIBUTE_READONLY);
@@ -728,17 +766,26 @@ _unlink_nt (path_conv &pc, bool shareable)
 	    }
 	}
       fdie.Flags = FILE_DISPOSITION_DELETE | FILE_DISPOSITION_POSIX_SEMANTICS;
+      if (wincap.has_posix_unlink_semantics_with_ignore_readonly ())
+        fdie.Flags |= FILE_DISPOSITION_IGNORE_READONLY_ATTRIBUTE;
       status = NtSetInformationFile (fh, &io, &fdie, sizeof fdie,
 				     FileDispositionInformationEx);
       /* Restore R/O attribute in case we have multiple hardlinks. */
-      if (pc.file_attributes () & FILE_ATTRIBUTE_READONLY)
+      if (access & FILE_WRITE_ATTRIBUTES)
 	NtSetAttributesFile (fh, pc.file_attributes ());
       NtClose (fh);
       /* Trying to delete in-use executables and DLLs using
          FILE_DISPOSITION_POSIX_SEMANTICS returns STATUS_CANNOT_DELETE.
 	 Fall back to the default method. */
-      if (status != STATUS_CANNOT_DELETE)
-	goto out;
+      /* Additionaly that returns STATUS_INVALID_PARAMETER
+         on a bind mounted fs in hyper-v container. Falling back too. */
+      if (status != STATUS_CANNOT_DELETE
+          && status != STATUS_INVALID_PARAMETER)
+        {
+          debug_printf ("NtSetInformationFile returns %y "
+                        "with posix semantics. Disable it and retry.", status);
+          goto out;
+        }
     }
 
   /* If the R/O attribute is set, we have to open the file with
@@ -756,8 +803,9 @@ _unlink_nt (path_conv &pc, bool shareable)
       if ((pc.fs_flags () & FILE_SUPPORTS_TRANSACTIONS))
 	start_transaction (old_trans, trans);
 retry_open:
-      status = NtOpenFile (&fh_ro, FILE_WRITE_ATTRIBUTES, &attr, &io,
-			   FILE_SHARE_VALID_FLAGS, flags);
+      status = NtOpenFile (&fh_ro,
+                           FILE_READ_ATTRIBUTES | FILE_WRITE_ATTRIBUTES,
+                           &attr, &io, FILE_SHARE_VALID_FLAGS, flags);
       if (NT_SUCCESS (status))
 	{
 	  debug_printf ("Opening %S for removing R/O succeeded",
@@ -1059,20 +1107,12 @@ out:
   /* Stop transaction if we started one. */
   if (trans)
     stop_transaction (status, old_trans, trans);
+
+  if (pc.isdir ())
+    status = _unlink_nt_post_dir_check (status, &attr, pc);
+
   syscall_printf ("%S, return status = %y", pc.get_nt_native_path (), status);
   return status;
-}
-
-NTSTATUS
-unlink_nt (path_conv &pc)
-{
-  return _unlink_nt (pc, false);
-}
-
-NTSTATUS
-unlink_nt_shareable (path_conv &pc)
-{
-  return _unlink_nt (pc, true);
 }
 
 extern "C" int
@@ -1096,7 +1136,11 @@ unlink (const char *ourname)
       set_errno (EROFS);
       goto done;
     }
-
+  if (isdevfd_dev (devn) || (win32_name.isdevice () && !win32_name.issocket ()))
+    {
+      set_errno (EPERM);
+      goto done;
+    }
   if (!win32_name.exists ())
     {
       debug_printf ("unlinking a nonexistent file");
@@ -1106,11 +1150,11 @@ unlink (const char *ourname)
   else if (win32_name.isdir ())
     {
       debug_printf ("unlinking a directory");
-      set_errno (EPERM);
+      set_errno (EISDIR);
       goto done;
     }
 
-  status = unlink_nt (win32_name);
+  status = unlink_nt (win32_name, false);
   if (NT_SUCCESS (status))
     res = 0;
   else
@@ -1133,24 +1177,15 @@ _remove_r (struct _reent *, const char *ourname)
       return -1;
     }
 
-  return win32_name.isdir () ? rmdir (ourname) : unlink (ourname);
+  int res = win32_name.isdir () ? rmdir (ourname) : unlink (ourname);
+  syscall_printf ("%R = remove(%s)", res, ourname);
+  return res;
 }
 
 extern "C" int
 remove (const char *ourname)
 {
-  path_conv win32_name (ourname, PC_SYM_NOFOLLOW);
-
-  if (win32_name.error)
-    {
-      set_errno (win32_name.error);
-      syscall_printf ("-1 = remove (%s)", ourname);
-      return -1;
-    }
-
-  int res = win32_name.isdir () ? rmdir (ourname) : unlink (ourname);
-  syscall_printf ("%R = remove(%s)", res, ourname);
-  return res;
+  return _remove_r (_REENT, ourname);
 }
 
 extern "C" pid_t
@@ -1182,7 +1217,7 @@ setsid (void)
     syscall_printf ("hmm.  pgid %d pid %d", myself->pgid, myself->pid);
   else
     {
-      myself->ctty = -2;
+      myself->ctty = CTTY_RELEASED;
       myself->sid = myself->pid;
       myself->pgid = myself->pid;
       if (cygheap->ctty)
@@ -1248,8 +1283,6 @@ read (int fd, void *ptr, size_t len)
   syscall_printf ("%lR = read(%d, %p, %d)", res, fd, ptr, len);
   return (ssize_t) res;
 }
-
-EXPORT_ALIAS (read, _read)
 
 extern "C" ssize_t
 readv (int fd, const struct iovec *const iov, const int iovcnt)
@@ -1347,8 +1380,6 @@ write (int fd, const void *ptr, size_t len)
   return res;
 }
 
-EXPORT_ALIAS (write, _write)
-
 extern "C" ssize_t
 writev (const int fd, const struct iovec *const iov, const int iovcnt)
 {
@@ -1395,7 +1426,7 @@ writev (const int fd, const struct iovec *const iov, const int iovcnt)
 }
 
 extern "C" ssize_t
-pwrite (int fd, void *ptr, size_t len, off_t off)
+pwrite (int fd, const void *ptr, size_t len, off_t off)
 {
   pthread_testcancel ();
 
@@ -1409,7 +1440,7 @@ pwrite (int fd, void *ptr, size_t len, off_t off)
       res = -1;
     }
   else
-    res = cfd->pwrite (ptr, len, off);
+    res = cfd->pwrite (const_cast<void *> (ptr), len, off);
 
   syscall_printf ("%lR = pwrite(%d, %p, %d, %d)", res, fd, ptr, len, off);
   return res;
@@ -1456,21 +1487,17 @@ open (const char *unix_path, int flags, ...)
       int opt = PC_OPEN | PC_SYM_NOFOLLOW_PROCFD;
       opt |= (flags & (O_NOFOLLOW | O_EXCL)) ? PC_SYM_NOFOLLOW
 					     : PC_SYM_FOLLOW;
-      /* This is a temporary kludge until all utilities can catch up
-	 with a change in behavior that implements linux functionality:
-	 opening a tty should not automatically cause it to become the
-	 controlling tty for the process.  */
-      if (!(flags & O_NOCTTY) && fd > 2 && myself->ctty != -2)
-	{
-	  flags |= O_NOCTTY;
-	  /* flag that, if opened, this fhandler could later be capable
-	     of being a controlling terminal if /dev/tty is opened. */
-	  opt |= PC_CTTY;
-	}
 
+      /* If we're opening a FIFO, we will call device_access_denied
+	 below.  This leads to a call to fstat, which can use the
+	 path_conv handle. */
+      opt |= PC_KEEP_HANDLE;
       if (!(fh = build_fh_name (unix_path, opt, stat_suffixes)))
 	__leave;		/* errno already set */
-      if ((flags & O_NOFOLLOW) && fh->issymlink ())
+      opt &= ~PC_KEEP_HANDLE;
+      if (!fh->isfifo ())
+	fh->pc.close_conv_handle ();
+      if ((flags & O_NOFOLLOW) && fh->issymlink () && !(flags & O_PATH))
 	{
 	  set_errno (ELOOP);
 	  __leave;
@@ -1536,9 +1563,18 @@ open (const char *unix_path, int flags, ...)
 	  delete fh;
 	  fh = fh_file;
 	}
-      else if ((fh->is_fs_special () && fh->device_access_denied (flags))
-	       || !fh->open_with_arch (flags, mode & 07777))
-	__leave;		/* errno already set */
+      else
+	{
+	  if (fh->is_fs_special ())
+	    {
+	      if (fh->device_access_denied (flags))
+		__leave;	/* errno already set */
+	      else if (fh->isfifo ())
+		fh->pc.close_conv_handle ();
+	    }
+	  if (!fh->open_with_arch (flags, mode & 07777))
+	    __leave;		/* errno already set */
+	}
       /* Move O_TMPFILEs to the bin to avoid blocking the parent dir. */
       if ((flags & O_TMPFILE) && !fh->pc.isremote ())
 	try_to_bin (fh->pc, fh->get_handle (), DELETE,
@@ -1556,15 +1592,72 @@ open (const char *unix_path, int flags, ...)
   return res;
 }
 
-EXPORT_ALIAS (open, _open )
-EXPORT_ALIAS (open, _open64 )
+static int
+posix_getdents_lseek (cygheap_fdget &cfd, off_t pos, int dir)
+{
+  long cur = cfd->telldir (cfd->getdents_dir ());
+  long abs_pos;
+
+  switch (dir)
+    {
+    case SEEK_CUR:
+      abs_pos = cur + pos;
+      break;
+    case SEEK_SET:
+    case SEEK_DATA:
+      abs_pos = pos;
+      break;
+    case SEEK_END:
+    case SEEK_HOLE:
+      /* First read full dir to learn end-of-dir position. */
+      while (::readdir (cfd->getdents_dir ()))
+	;
+      long eod = cfd->telldir (cfd->getdents_dir ());
+      /* Seek back so it looks like nothing happend in error case */
+      cfd->seekdir (cfd->getdents_dir (), cur);
+      if (dir == SEEK_HOLE)
+	{
+	  if (pos > eod)
+	    {
+	      set_errno (ENXIO);
+	      return -1;
+	    }
+	  abs_pos = eod;
+	}
+      else
+	abs_pos = eod + pos;
+      break;
+    }
+  if (abs_pos < 0)
+    {
+      set_errno (EINVAL);
+      return -1;
+    }
+  if (abs_pos != cur)
+    {
+      cfd->seekdir (cfd->getdents_dir (), abs_pos);
+      /* In SEEK_DATA case, check that we didn't seek beyond EOF */
+      if (dir == SEEK_DATA || dir == SEEK_HOLE)
+	{
+	  pos = cfd->telldir (cfd->getdents_dir ());
+	  if (pos < abs_pos)
+	    {
+	      /* Seek back so it looks like nothing happend */
+	      cfd->seekdir (cfd->getdents_dir (), cur);
+	      set_errno (ENXIO);
+	      return -1;
+	    }
+	}
+    }
+  return abs_pos;
+}
 
 extern "C" off_t
-lseek64 (int fd, off_t pos, int dir)
+lseek (int fd, off_t pos, int dir)
 {
   off_t res;
 
-  if (dir != SEEK_SET && dir != SEEK_CUR && dir != SEEK_END)
+  if (dir < SEEK_SET || dir > SEEK_HOLE)
     {
       set_errno (EINVAL);
       res = -1;
@@ -1572,10 +1665,12 @@ lseek64 (int fd, off_t pos, int dir)
   else
     {
       cygheap_fdget cfd (fd);
-      if (cfd >= 0)
-	res = cfd->lseek (pos, dir);
-      else
+      if (cfd < 0)
 	res = -1;
+      else if (cfd->getdents_dir ())
+	res = posix_getdents_lseek (cfd, pos, dir);
+      else
+	res = cfd->lseek (pos, dir);
     }
   /* Can't use %R/%lR here since res is always 8 bytes */
   syscall_printf (res == -1 ? "%D = lseek(%d, %D, %d), errno %d"
@@ -1584,21 +1679,6 @@ lseek64 (int fd, off_t pos, int dir)
 
   return res;
 }
-
-EXPORT_ALIAS (lseek64, _lseek64)
-
-#ifdef __i386__
-extern "C" _off_t
-lseek (int fd, _off_t pos, int dir)
-{
-  return lseek64 (fd, (off_t) pos, dir);
-}
-EXPORT_ALIAS (lseek, _lseek)
-#else
-EXPORT_ALIAS (lseek64, lseek)
-EXPORT_ALIAS (lseek64, _lseek)
-#endif
-
 
 extern "C" int
 close (int fd)
@@ -1623,8 +1703,6 @@ close (int fd)
   return res;
 }
 
-EXPORT_ALIAS (close, _close)
-
 extern "C" int
 isatty (int fd)
 {
@@ -1638,7 +1716,6 @@ isatty (int fd)
   syscall_printf ("%R = isatty(%d)", res, fd);
   return res;
 }
-EXPORT_ALIAS (isatty, _isatty)
 
 extern "C" int
 link (const char *oldpath, const char *newpath)
@@ -1698,41 +1775,19 @@ chown_worker (const char *name, unsigned fmode, uid_t uid, gid_t gid)
 }
 
 extern "C" int
-chown32 (const char * name, uid_t uid, gid_t gid)
+chown (const char * name, uid_t uid, gid_t gid)
 {
   return chown_worker (name, PC_SYM_FOLLOW, uid, gid);
 }
 
-#ifdef __i386__
 extern "C" int
-chown (const char * name, __uid16_t uid, __gid16_t gid)
-{
-  return chown_worker (name, PC_SYM_FOLLOW,
-		       uid16touid32 (uid), gid16togid32 (gid));
-}
-#else
-EXPORT_ALIAS (chown32, chown)
-#endif
-
-extern "C" int
-lchown32 (const char * name, uid_t uid, gid_t gid)
+lchown (const char * name, uid_t uid, gid_t gid)
 {
   return chown_worker (name, PC_SYM_NOFOLLOW, uid, gid);
 }
 
-#ifdef __i386__
 extern "C" int
-lchown (const char * name, __uid16_t uid, __gid16_t gid)
-{
-  return chown_worker (name, PC_SYM_NOFOLLOW,
-		       uid16touid32 (uid), gid16togid32 (gid));
-}
-#else
-EXPORT_ALIAS (lchown32, lchown)
-#endif
-
-extern "C" int
-fchown32 (int fd, uid_t uid, gid_t gid)
+fchown (int fd, uid_t uid, gid_t gid)
 {
   cygheap_fdget cfd (fd);
   if (cfd < 0)
@@ -1752,16 +1807,6 @@ fchown32 (int fd, uid_t uid, gid_t gid)
   return res;
 }
 
-#ifdef __i386__
-extern "C" int
-fchown (int fd, __uid16_t uid, __gid16_t gid)
-{
-  return fchown32 (fd, uid16touid32 (uid), gid16togid32 (gid));
-}
-#else
-EXPORT_ALIAS (fchown32, fchown)
-#endif
-
 /* umask: POSIX 5.3.3.1 */
 extern "C" mode_t
 umask (mode_t mask)
@@ -1773,14 +1818,15 @@ umask (mode_t mask)
   return oldmask;
 }
 
+#define FILTERED_MODE(m)	((m) & (S_ISUID | S_ISGID | S_ISVTX \
+					| S_IRWXU | S_IRWXG | S_IRWXO))
+
 int
 chmod_device (path_conv& pc, mode_t mode)
 {
-  return mknod_worker (pc.get_win32 (), pc.dev.mode () & S_IFMT, mode, pc.dev.get_major (), pc.dev.get_minor ());
+  return mknod_worker (pc, (pc.dev.mode () & S_IFMT) | FILTERED_MODE (mode),
+		       pc.dev.get_major (), pc.dev.get_minor ());
 }
-
-#define FILTERED_MODE(m)	((m) & (S_ISUID | S_ISGID | S_ISVTX \
-					| S_IRWXU | S_IRWXG | S_IRWXO))
 
 /* chmod: POSIX 5.6.4.1 */
 extern "C" int
@@ -1825,26 +1871,6 @@ fchmod (int fd, mode_t mode)
   return cfd->fchmod (FILTERED_MODE (mode));
 }
 
-#ifdef __i386__
-static void
-stat64_to_stat32 (struct stat *src, struct __stat32 *dst)
-{
-  dst->st_dev = ((src->st_dev >> 8) & 0xff00) | (src->st_dev & 0xff);
-  dst->st_ino = ((unsigned) (src->st_ino >> 32)) | (unsigned) src->st_ino;
-  dst->st_mode = src->st_mode;
-  dst->st_nlink = src->st_nlink;
-  dst->st_uid = src->st_uid;
-  dst->st_gid = src->st_gid;
-  dst->st_rdev = ((src->st_rdev >> 8) & 0xff00) | (src->st_rdev & 0xff);
-  dst->st_size = src->st_size;
-  dst->st_atim = src->st_atim;
-  dst->st_mtim = src->st_mtim;
-  dst->st_ctim = src->st_ctim;
-  dst->st_blksize = src->st_blksize;
-  dst->st_blocks = src->st_blocks;
-}
-#endif
-
 static struct stat dev_st;
 static bool dev_st_inited;
 
@@ -1876,7 +1902,7 @@ fhandler_base::stat_fixup (struct stat *buf)
 	{
 	  if (!dev_st_inited)
 	    {
-	      stat64 ("/dev", &dev_st);
+	      stat ("/dev", &dev_st);
 	      dev_st_inited = true;
 	    }
 	  buf->st_dev = dev_st.st_dev;
@@ -1899,7 +1925,7 @@ fhandler_base::stat_fixup (struct stat *buf)
 }
 
 extern "C" int
-fstat64 (int fd, struct stat *buf)
+fstat (int fd, struct stat *buf)
 {
   int res;
 
@@ -1919,39 +1945,14 @@ fstat64 (int fd, struct stat *buf)
 }
 
 extern "C" int
-_fstat64_r (struct _reent *ptr, int fd, struct stat *buf)
-{
-  int ret;
-
-  if ((ret = fstat64 (fd, buf)) == -1)
-    ptr->_errno = get_errno ();
-  return ret;
-}
-
-#ifdef __i386__
-extern "C" int
-fstat (int fd, struct stat *buf)
-{
-  struct stat buf64;
-  int ret = fstat64 (fd, &buf64);
-  if (!ret)
-    stat64_to_stat32 (&buf64, (struct __stat32 *) buf);
-  return ret;
-}
-
-extern "C" int
 _fstat_r (struct _reent *ptr, int fd, struct stat *buf)
 {
   int ret;
 
   if ((ret = fstat (fd, buf)) == -1)
-    ptr->_errno = get_errno ();
+    _REENT_ERRNO(ptr) = get_errno ();
   return ret;
 }
-#else
-EXPORT_ALIAS (fstat64, fstat)
-EXPORT_ALIAS (_fstat64_r, _fstat_r)
-#endif
 
 /* fsync: P96 6.6.1.1 */
 extern "C" int
@@ -1966,8 +1967,6 @@ fsync (int fd)
     }
   return cfd->fsync ();
 }
-
-EXPORT_ALIAS (fsync, fdatasync)
 
 static void
 sync_worker (HANDLE dir, USHORT len, LPCWSTR vol)
@@ -2011,25 +2010,41 @@ sync ()
       return;
     }
   /* Traverse \Device directory ... */
-  PDIRECTORY_BASIC_INFORMATION dbi = (PDIRECTORY_BASIC_INFORMATION)
-				     alloca (640);
+  tmp_pathbuf tp;
+  PDIRECTORY_BASIC_INFORMATION dbi_buf = (PDIRECTORY_BASIC_INFORMATION)
+					 tp.w_get ();
   BOOLEAN restart = TRUE;
+  bool last_run = false;
   ULONG context = 0;
-  while (NT_SUCCESS (NtQueryDirectoryObject (devhdl, dbi, 640, TRUE, restart,
-					     &context, NULL)))
+  while (!last_run)
     {
+      status = NtQueryDirectoryObject (devhdl, dbi_buf, 65536, FALSE, restart,
+				       &context, NULL);
+      if (!NT_SUCCESS (status))
+	{
+	  debug_printf ("NtQueryDirectoryObject, status %y", status);
+	  break;
+	}
+      if (status != STATUS_MORE_ENTRIES)
+	last_run = true;
       restart = FALSE;
-      /* ... and call sync_worker for each HarddiskVolumeX entry. */
-      if (dbi->ObjectName.Length >= 15 * sizeof (WCHAR)
-	  && !wcsncasecmp (dbi->ObjectName.Buffer, L"HarddiskVolume", 14)
-	  && iswdigit (dbi->ObjectName.Buffer[14]))
-	sync_worker (devhdl, dbi->ObjectName.Length, dbi->ObjectName.Buffer);
+      for (PDIRECTORY_BASIC_INFORMATION dbi = dbi_buf;
+	   dbi->ObjectName.Length > 0;
+	   dbi++)
+	{
+	  /* ... and call sync_worker for each HarddiskVolumeX entry. */
+	  if (dbi->ObjectName.Length >= 15 * sizeof (WCHAR)
+	      && !wcsncasecmp (dbi->ObjectName.Buffer, L"HarddiskVolume", 14)
+	      && iswdigit (dbi->ObjectName.Buffer[14]))
+	    sync_worker (devhdl, dbi->ObjectName.Length,
+			 dbi->ObjectName.Buffer);
+	}
     }
   NtClose (devhdl);
 }
 
 /* Cygwin internal */
-int __reg2
+int
 stat_worker (path_conv &pc, struct stat *buf)
 {
   int res = -1;
@@ -2045,12 +2060,14 @@ stat_worker (path_conv &pc, struct stat *buf)
 	{
 	  fhandler_base *fh;
 
+	  memset (buf, 0, sizeof (*buf));
+
 	  if (!(fh = build_fh_pc (pc)))
 	    __leave;
 
 	  debug_printf ("(%S, %p, %p), file_attributes %d",
 			pc.get_nt_native_path (), buf, fh, (DWORD) *fh);
-	  memset (buf, 0, sizeof (*buf));
+
 	  res = fh->fstat (buf);
 	  if (!res)
 	    fh->stat_fixup (buf);
@@ -2066,7 +2083,7 @@ stat_worker (path_conv &pc, struct stat *buf)
 }
 
 extern "C" int
-stat64 (const char *__restrict name, struct stat *__restrict buf)
+stat (const char *__restrict name, struct stat *__restrict buf)
 {
   syscall_printf ("entering");
   path_conv pc (name, PC_SYM_FOLLOW | PC_POSIX | PC_KEEP_HANDLE
@@ -2076,66 +2093,25 @@ stat64 (const char *__restrict name, struct stat *__restrict buf)
 }
 
 extern "C" int
-_stat64_r (struct _reent *__restrict ptr, const char *__restrict name,
+_stat_r (struct _reent *__restrict ptr, const char *__restrict name,
 	   struct stat *buf)
 {
   int ret;
 
-  if ((ret = stat64 (name, buf)) == -1)
-    ptr->_errno = get_errno ();
-  return ret;
-}
-
-#ifdef __i386__
-extern "C" int
-stat (const char *__restrict name, struct stat *__restrict buf)
-{
-  struct stat buf64;
-  int ret = stat64 (name, &buf64);
-  if (!ret)
-    stat64_to_stat32 (&buf64, (struct __stat32 *) buf);
-  return ret;
-}
-
-extern "C" int
-_stat_r (struct _reent *__restrict ptr, const char *__restrict name,
-	 struct stat *__restrict buf)
-{
-  int ret;
-
   if ((ret = stat (name, buf)) == -1)
-    ptr->_errno = get_errno ();
+    _REENT_ERRNO(ptr) = get_errno ();
   return ret;
 }
-#else
-EXPORT_ALIAS (stat64, stat)
-EXPORT_ALIAS (_stat64_r, _stat_r)
-#endif
 
 /* lstat: Provided by SVR4 and 4.3+BSD, POSIX? */
 extern "C" int
-lstat64 (const char *__restrict name, struct stat *__restrict buf)
+lstat (const char *__restrict name, struct stat *__restrict buf)
 {
   syscall_printf ("entering");
   path_conv pc (name, PC_SYM_NOFOLLOW | PC_POSIX | PC_KEEP_HANDLE,
 		stat_suffixes);
   return stat_worker (pc, buf);
 }
-
-#ifdef __i386__
-/* lstat: Provided by SVR4 and 4.3+BSD, POSIX? */
-extern "C" int
-lstat (const char *__restrict name, struct stat *__restrict buf)
-{
-  struct stat buf64;
-  int ret = lstat64 (name, &buf64);
-  if (!ret)
-    stat64_to_stat32 (&buf64, (struct __stat32 *) buf);
-  return ret;
-}
-#else
-EXPORT_ALIAS (lstat64, lstat)
-#endif
 
 extern "C" int
 access (const char *fn, int flags)
@@ -2202,13 +2178,6 @@ nt_path_has_executable_suffix (PUNICODE_STRING upath)
 {
   static const PUNICODE_STRING blessed_executable_suffixes[] =
   {
-    &ro_u_com,
-    &ro_u_dll,	/* Messy, messy.  Per MSDN, the GetBinaryType function is
-		   supposed to return with ERROR_BAD_EXE_FORMAT. if the file
-		   is a DLL.  On 64-bit Windows, this works as expected for
-		   32-bit and 64-bit DLLs.  On 32-bit Windows this only works
-		   for 32-bit DLLs.  For 64-bit DLLs, 32-bit Windows returns
-		   true with the type set to SCS_64BIT_BINARY. */
     &ro_u_exe,
     &ro_u_scr,
     &ro_u_sys,
@@ -2234,6 +2203,14 @@ nt_path_has_executable_suffix (PUNICODE_STRING upath)
   return false;
 }
 
+inline int
+set_same_file_return (bool noreplace)
+{
+  if (!noreplace)
+    return 0;
+  set_errno (EEXIST);
+  return -1;
+}
 /* If newpath names an existing file and the RENAME_NOREPLACE flag is
    specified, fail with EEXIST.  Exception: Don't fail if the purpose
    of the rename is just to change the case of oldpath on a
@@ -2412,7 +2389,7 @@ rename2 (const char *oldpath, const char *newpath, unsigned int at2flags)
 				     newpc.get_nt_native_path (),
 				     FALSE))
 	    {
-	      res = 0;
+	      res = set_same_file_return (noreplace);
 	      __leave;
 	    }
 	  newpc.file_attributes (INVALID_FILE_ATTRIBUTES);
@@ -2427,7 +2404,7 @@ rename2 (const char *oldpath, const char *newpath, unsigned int at2flags)
 	      if (newpc.get_nt_native_path ()->Length
 		  == oldpc.get_nt_native_path ()->Length)
 		{
-		  res = 0;
+		  res = set_same_file_return (noreplace);
 		  __leave;
 		}
 	      if (*(PWCHAR) ((PBYTE) newpc.get_nt_native_path ()->Buffer
@@ -2447,7 +2424,7 @@ rename2 (const char *oldpath, const char *newpath, unsigned int at2flags)
 					 newpc.get_nt_native_path (),
 					 oldpc.objcaseinsensitive ()))
 		{
-		  res = 0;
+		  res = set_same_file_return (noreplace);
 		  __leave;
 		}
 	    }
@@ -2476,7 +2453,7 @@ rename2 (const char *oldpath, const char *newpath, unsigned int at2flags)
 					 newpc.get_nt_native_path (),
 					 oldpc.objcaseinsensitive ()))
 		{
-		  res = 0;
+		  res = set_same_file_return (noreplace);
 		  __leave;
 		}
 	    }
@@ -2542,11 +2519,14 @@ rename2 (const char *oldpath, const char *newpath, unsigned int at2flags)
 	  __leave;
 	}
 
-      /* POSIX semantics only on local NTFS drives. */
+      /* POSIX semantics only on local NTFS drives. For the OPEN_BY_FILE_ID
+         flag, see MINIMAL_WIN_NTFS_FLAGS comment in fs_info::update. */
       use_posix_semantics = wincap.has_posix_rename_semantics ()
 			    && !oldpc.isremote ()
-			    && oldpc.fs_is_ntfs ();
+			    && oldpc.fs_is_ntfs ()
+			    && oldpc.has_attribute (FILE_SUPPORTS_OPEN_BY_FILE_ID);
 
+ignore_posix_semantics_retry:
       /* Opening the file must be part of the transaction.  It's not sufficient
 	 to call only NtSetInformationFile under the transaction.  Therefore we
 	 have to start the transaction here, if necessary.  Don't start
@@ -2627,7 +2607,7 @@ rename2 (const char *oldpath, const char *newpath, unsigned int at2flags)
 	 unlink_nt returns with STATUS_DIRECTORY_NOT_EMPTY. */
       if (dstpc->isdir ())
 	{
-	  status = unlink_nt (*dstpc);
+	  status = unlink_nt (*dstpc, false);
 	  if (!NT_SUCCESS (status))
 	    {
 	      __seterrno_from_nt_status (status);
@@ -2694,7 +2674,7 @@ skip_pre_W10_checks:
 	    {
 	      debug_printf ("%s and %s are the same file", oldpath, newpath);
 	      NtClose (nfh);
-	      res = 0;
+	      res = set_same_file_return (noreplace);
 	      __leave;
 	    }
 	  NtClose (nfh);
@@ -2768,7 +2748,7 @@ skip_pre_W10_checks:
 					? FILE_OPEN_REPARSE_POINT : 0));
 	      if (NT_SUCCESS (status))
 		{
-		  status = unlink_nt (*dstpc);
+		  status = unlink_nt (*dstpc, false);
 		  if (NT_SUCCESS (status))
 		    break;
 		}
@@ -2788,9 +2768,20 @@ skip_pre_W10_checks:
       if (NT_SUCCESS (status))
 	{
 	  if (removepc)
-	    unlink_nt (*removepc);
+	    unlink_nt (*removepc, false);
 	  res = 0;
 	}
+      else if (use_posix_semantics && status == STATUS_INVALID_PARAMETER)
+        {
+          /* NtSetInformationFile returns STATUS_INVALID_PARAMETER
+             on a bind mounted file system in hyper-v container
+             with FILE_RENAME_POSIX_SEMANTICS.
+             Disable the use_posix semntics flag and retry. */
+          debug_printf ("NtSetInformationFile failed with posix semantics. "
+                        "Disable it and retry.");
+          use_posix_semantics = 0;
+          goto ignore_posix_semantics_retry;
+        }
       else
 	__seterrno_from_nt_status (status);
     }
@@ -2855,7 +2846,7 @@ setdtablesize (int size)
     }
 
   if (size <= (int) cygheap->fdtab.size
-      || cygheap->fdtab.extend (size - cygheap->fdtab.size, OPEN_MAX_MAX))
+      || cygheap->fdtab.extend (size - cygheap->fdtab.size, OPEN_MAX))
     return 0;
 
   return -1;
@@ -2864,7 +2855,7 @@ setdtablesize (int size)
 extern "C" int
 getdtablesize ()
 {
-  return cygheap->fdtab.size;
+  return OPEN_MAX;
 }
 
 extern "C" int
@@ -2953,7 +2944,7 @@ ctermid (char *str)
 {
   if (str == NULL)
     str = _my_tls.locals.ttybuf;
-  if (myself->ctty < 0)
+  if (!CTTY_IS_VALID (myself->ctty))
     strcpy (str, "no tty");
   else
     {
@@ -2968,12 +2959,6 @@ ctermid (char *str)
 extern "C" int
 _cygwin_istext_for_stdio (int fd)
 {
-  if (CYGWIN_VERSION_OLD_STDIO_CRLF_HANDLING)
-    {
-      syscall_printf ("fd %d: old API", fd);
-      return 0; /* we do it for old apps, due to getc/putc macros */
-    }
-
   cygheap_fdget cfd (fd, false, false);
   if (cfd < 0)
     {
@@ -2999,11 +2984,8 @@ _cygwin_istext_for_stdio (int fd)
   return 1;
 }
 
-/* internal newlib function */
-extern "C" int _fwalk (struct _reent *ptr, int (*function) (FILE *));
-
 static int
-setmode_helper (FILE *f)
+setmode_helper (struct _reent *ptr __unused, FILE *f)
 {
   if (fileno (f) != _my_tls.locals.setmode_file)
     {
@@ -3079,7 +3061,7 @@ cygwin_setmode (int fd, int mode)
 	_my_tls.locals.setmode_mode = O_TEXT;
       else
 	_my_tls.locals.setmode_mode = O_BINARY;
-      _fwalk (_GLOBAL_REENT, setmode_helper);
+      _fwalk_sglue (_GLOBAL_REENT, setmode_helper, &__sglue);
     }
   return res;
 }
@@ -3099,33 +3081,80 @@ posix_fadvise (int fd, off_t offset, off_t len, int advice)
 }
 
 extern "C" int
-posix_fallocate (int fd, off_t offset, off_t len)
+fallocate (int fd, int mode, off_t offset, off_t len)
 {
   int res = 0;
-  if (offset < 0 || len == 0)
+
+  /* First check mask of allowed flags */
+  if (mode & ~(FALLOC_FL_PUNCH_HOLE | FALLOC_FL_ZERO_RANGE
+	       | FALLOC_FL_UNSHARE_RANGE | FALLOC_FL_COLLAPSE_RANGE
+	       | FALLOC_FL_INSERT_RANGE | FALLOC_FL_KEEP_SIZE))
+    res = EOPNOTSUPP;
+  /* Either FALLOC_FL_PUNCH_HOLE or FALLOC_FL_ZERO_RANGE, never both */
+  else if ((mode & (FALLOC_FL_PUNCH_HOLE | FALLOC_FL_ZERO_RANGE))
+	   == (FALLOC_FL_PUNCH_HOLE | FALLOC_FL_ZERO_RANGE))
+    res = EOPNOTSUPP;
+  /* FALLOC_FL_PUNCH_HOLE must be ORed with FALLOC_FL_KEEP_SIZE */
+  else if ((mode & (FALLOC_FL_PUNCH_HOLE | FALLOC_FL_KEEP_SIZE))
+	   == FALLOC_FL_PUNCH_HOLE)
+    res = EOPNOTSUPP;
+  else if (offset < 0 || len <= 0)
     res = EINVAL;
+  else if (INT64_MAX - len < offset)
+    res = EFBIG;
   else
     {
       cygheap_fdget cfd (fd);
       if (cfd >= 0)
-	res = cfd->ftruncate (offset + len, false);
+	res = cfd->fallocate (mode, offset, len);
       else
 	res = EBADF;
+      if (res == EISDIR)
+	res = ENODEV;
+    }
+  if (res)
+    {
+      set_errno (res);
+      res = -1;
+    }
+  syscall_printf ("%R = fallocate(%d, %y, %D, %D)", res, fd, mode, offset, len);
+  return res;
+}
+
+extern "C" int
+posix_fallocate (int fd, off_t offset, off_t len)
+{
+  int res = 0;
+  if (offset < 0 || len <= 0)
+    res = EINVAL;
+  else if (INT64_MAX - len < offset)
+    res = EFBIG;
+  else
+    {
+      cygheap_fdget cfd (fd);
+      if (cfd >= 0)
+	res = cfd->fallocate (0, offset, len);
+      else
+	res = EBADF;
+      if (res == EISDIR)
+	res = ENODEV;
     }
   syscall_printf ("%R = posix_fallocate(%d, %D, %D)", res, fd, offset, len);
   return res;
 }
 
 extern "C" int
-ftruncate64 (int fd, off_t length)
+ftruncate (int fd, off_t length)
 {
   int res = -1;
   cygheap_fdget cfd (fd);
   if (cfd >= 0)
     {
-      res = cfd->ftruncate (length, true);
+      res = cfd->fallocate (__FALLOC_FL_TRUNCATE, 0, length);
       if (res)
 	{
+	  if (res == ENODEV)
+	    res = EINVAL;
 	  set_errno (res);
 	  res = -1;
 	}
@@ -3136,20 +3165,9 @@ ftruncate64 (int fd, off_t length)
   return res;
 }
 
-#ifdef __i386__
-/* ftruncate: P96 5.6.7.1 */
-extern "C" int
-ftruncate (int fd, _off_t length)
-{
-  return ftruncate64 (fd, (off_t)length);
-}
-#else
-EXPORT_ALIAS (ftruncate64, ftruncate)
-#endif
-
 /* truncate: Provided by SVR4 and 4.3+BSD.  Not part of POSIX.1 or XPG3 */
 extern "C" int
-truncate64 (const char *pathname, off_t length)
+truncate (const char *pathname, off_t length)
 {
   int fd;
   int res = -1;
@@ -3158,24 +3176,13 @@ truncate64 (const char *pathname, off_t length)
 
   if (fd != -1)
     {
-      res = ftruncate64 (fd, length);
+      res = ftruncate (fd, length);
       close (fd);
     }
   syscall_printf ("%R = truncate(%s, %D)", res, pathname, length);
 
   return res;
 }
-
-#ifdef __i386__
-/* truncate: Provided by SVR4 and 4.3+BSD.  Not part of POSIX.1 or XPG3 */
-extern "C" int
-truncate (const char *pathname, _off_t length)
-{
-  return truncate64 (pathname, (off_t)length);
-}
-#else
-EXPORT_ALIAS (truncate64, truncate)
-#endif
 
 extern "C" long
 _get_osfhandle (int fd)
@@ -3360,22 +3367,20 @@ ptsname_r (int fd, char *buf, size_t buflen)
 
   cygheap_fdget cfd (fd);
   if (cfd < 0)
-    return 0;
+    return EBADF;
   return cfd->ptsname_r (buf, buflen);
 }
 
-static int __stdcall
-mknod_worker (const char *path, mode_t type, mode_t mode, _major_t major,
-	      _minor_t minor)
+static int
+mknod_worker (path_conv &pc, mode_t mode, _major_t major, _minor_t minor)
 {
   char buf[sizeof (":\\00000000:00000000:00000000") + PATH_MAX];
-  sprintf (buf, ":\\%x:%x:%x", major, minor,
-	   type | (mode & (S_IRWXU | S_IRWXG | S_IRWXO)));
-  return symlink_worker (buf, path, true);
+  sprintf (buf, ":\\%x:%x:%x", major, minor, mode);
+  return symlink_worker (buf, pc, true);
 }
 
 extern "C" int
-mknod32 (const char *path, mode_t mode, dev_t dev)
+mknod (const char *path, mode_t mode, dev_t dev)
 {
   __try
     {
@@ -3388,12 +3393,17 @@ mknod32 (const char *path, mode_t mode, dev_t dev)
       if (strlen (path) >= PATH_MAX)
 	__leave;
 
-      path_conv w32path (path, PC_SYM_NOFOLLOW);
-      if (w32path.exists ())
-	{
-	  set_errno (EEXIST);
-	  __leave;
-	}
+      /* Trailing dirsep is a no-no, only errno differs. */
+      bool has_trailing_dirsep = isdirsep (path[strlen (path) - 1]);
+
+      path_conv w32path (path, PC_SYM_NOFOLLOW | PC_SYM_NOFOLLOW_DIR
+			       | PC_POSIX, stat_suffixes);
+
+      if (w32path.exists () || has_trailing_dirsep)
+        {
+          set_errno (w32path.exists () ? EEXIST : ENOENT);
+          __leave;
+        }
 
       mode_t type = mode & S_IFMT;
       _major_t major = _major (dev);
@@ -3424,7 +3434,7 @@ mknod32 (const char *path, mode_t mode, dev_t dev)
 	  __leave;
 	}
 
-      return mknod_worker (w32path.get_win32 (), type, mode, major, minor);
+      return mknod_worker (w32path, mode, major, minor);
     }
   __except (EFAULT)
   __endtry
@@ -3432,20 +3442,14 @@ mknod32 (const char *path, mode_t mode, dev_t dev)
 }
 
 extern "C" int
-mknod (const char *_path, mode_t mode, __dev16_t dev)
-{
-  return mknod32 (_path, mode, (dev_t) dev);
-}
-
-extern "C" int
 mkfifo (const char *path, mode_t mode)
 {
-  return mknod32 (path, (mode & ~S_IFMT) | S_IFIFO, 0);
+  return mknod (path, (mode & ~S_IFMT) | S_IFIFO, 0);
 }
 
 /* seteuid: standards? */
 extern "C" int
-seteuid32 (uid_t uid)
+seteuid (uid_t uid)
 {
   debug_printf ("uid: %u myself->uid: %u myself->gid: %u",
 		uid, myself->uid, myself->gid);
@@ -3548,8 +3552,7 @@ seteuid32 (uid_t uid)
   debug_printf ("Found token %p", new_token);
 
   /* If no impersonation token is available, try to authenticate using
-     LSA private data stored password, LSA authentication using our own
-     LSA module, or, as last chance, NtCreateToken. */
+     LSA private data stored password, or, if that fails, S4U logon. */
   if (new_token == NULL)
     {
       if (!(new_token = lsaprivkeyauth (pw_new)))
@@ -3562,23 +3565,9 @@ seteuid32 (uid_t uid)
 	  extract_nt_dom_user (pw_new, domain, user);
 	  if (!(new_token = s4uauth (true, domain, user, status)))
 	    {
-	      if (status != STATUS_INVALID_PARAMETER)
-		{
-		  debug_printf ("s4uauth failed, bail out");
-		  cygheap->user.reimpersonate ();
-		  return -1;
-		}
-	      /* If s4uauth fails with status code STATUS_INVALID_PARAMETER,
-		 we're running on a system not implementing MsV1_0S4ULogon
-		 (Windows 7 WOW64, Vista?).  Fall back to create_token in
-		 this single case only. */
-	      debug_printf ("s4uauth failed, try create_token.");
-	      if (!(new_token = create_token (usersid, groups)))
-		{
-		  debug_printf ("create_token failed, bail out");
-		  cygheap->user.reimpersonate ();
-		  return -1;
-		}
+	      debug_printf ("s4uauth failed, bail out");
+	      cygheap->user.reimpersonate ();
+	      return -1;
 	    }
 	}
 
@@ -3664,21 +3653,11 @@ seteuid32 (uid_t uid)
   return 0;
 }
 
-#ifdef __i386__
-extern "C" int
-seteuid (__uid16_t uid)
-{
-  return seteuid32 (uid16touid32 (uid));
-}
-#else
-EXPORT_ALIAS (seteuid32, seteuid)
-#endif
-
 /* setuid: POSIX 4.2.2.1 */
 extern "C" int
-setuid32 (uid_t uid)
+setuid (uid_t uid)
 {
-  int ret = seteuid32 (uid);
+  int ret = seteuid (uid);
   if (!ret)
     {
       cygheap->user.real_uid = myself->uid;
@@ -3689,28 +3668,18 @@ setuid32 (uid_t uid)
   return ret;
 }
 
-#ifdef __i386__
 extern "C" int
-setuid (__uid16_t uid)
-{
-  return setuid32 (uid16touid32 (uid));
-}
-#else
-EXPORT_ALIAS (setuid32, setuid)
-#endif
-
-extern "C" int
-setreuid32 (uid_t ruid, uid_t euid)
+setreuid (uid_t ruid, uid_t euid)
 {
   int ret = 0;
   bool tried = false;
   uid_t old_euid = myself->uid;
 
   if (ruid != ILLEGAL_UID && cygheap->user.real_uid != ruid && euid != ruid)
-    tried = !(ret = seteuid32 (ruid));
+    tried = !(ret = seteuid (ruid));
   if (!ret && euid != ILLEGAL_UID)
-    ret = seteuid32 (euid);
-  if (tried && (ret || euid == ILLEGAL_UID) && seteuid32 (old_euid))
+    ret = seteuid (euid);
+  if (tried && (ret || euid == ILLEGAL_UID) && seteuid (old_euid))
     system_printf ("Cannot restore original euid %u", old_euid);
   if (!ret && ruid != ILLEGAL_UID)
     cygheap->user.real_uid = ruid;
@@ -3718,19 +3687,9 @@ setreuid32 (uid_t ruid, uid_t euid)
   return ret;
 }
 
-#ifdef __i386__
-extern "C" int
-setreuid (__uid16_t ruid, __uid16_t euid)
-{
-  return setreuid32 (uid16touid32 (ruid), uid16touid32 (euid));
-}
-#else
-EXPORT_ALIAS (setreuid32, setreuid)
-#endif
-
 /* setegid: from System V.  */
 extern "C" int
-setegid32 (gid_t gid)
+setegid (gid_t gid)
 {
   debug_printf ("new egid: %u current: %u", gid, myself->gid);
 
@@ -3778,67 +3737,34 @@ setegid32 (gid_t gid)
   return 0;
 }
 
-#ifdef __i386__
-extern "C" int
-setegid (__gid16_t gid)
-{
-  return setegid32 (gid16togid32 (gid));
-}
-#else
-EXPORT_ALIAS (setegid32, setegid)
-#endif
-
 /* setgid: POSIX 4.2.2.1 */
 extern "C" int
-setgid32 (gid_t gid)
+setgid (gid_t gid)
 {
-  int ret = setegid32 (gid);
+  int ret = setegid (gid);
   if (!ret)
     cygheap->user.real_gid = myself->gid;
   return ret;
 }
 
-#ifdef __i386__
 extern "C" int
-setgid (__gid16_t gid)
-{
-  int ret = setegid32 (gid16togid32 (gid));
-  if (!ret)
-    cygheap->user.real_gid = myself->gid;
-  return ret;
-}
-#else
-EXPORT_ALIAS (setgid32, setgid)
-#endif
-
-extern "C" int
-setregid32 (gid_t rgid, gid_t egid)
+setregid (gid_t rgid, gid_t egid)
 {
   int ret = 0;
   bool tried = false;
   gid_t old_egid = myself->gid;
 
   if (rgid != ILLEGAL_GID && cygheap->user.real_gid != rgid && egid != rgid)
-    tried = !(ret = setegid32 (rgid));
+    tried = !(ret = setegid (rgid));
   if (!ret && egid != ILLEGAL_GID)
-    ret = setegid32 (egid);
-  if (tried && (ret || egid == ILLEGAL_GID) && setegid32 (old_egid))
+    ret = setegid (egid);
+  if (tried && (ret || egid == ILLEGAL_GID) && setegid (old_egid))
     system_printf ("Cannot restore original egid %u", old_egid);
   if (!ret && rgid != ILLEGAL_GID)
     cygheap->user.real_gid = rgid;
   debug_printf ("real: %u, effective: %u", cygheap->user.real_gid, myself->gid);
   return ret;
 }
-
-#ifdef __i386__
-extern "C" int
-setregid (__gid16_t rgid, __gid16_t egid)
-{
-  return setregid32 (gid16togid32 (rgid), gid16togid32 (egid));
-}
-#else
-EXPORT_ALIAS (setregid32, setregid)
-#endif
 
 /* chroot: privileged Unix system call.  */
 /* FIXME: Not privileged here. How should this be done? */
@@ -3890,9 +3816,6 @@ vhangup ()
 extern "C" int
 setpriority (int which, id_t who, int value)
 {
-  DWORD prio = nice_to_winprio (value);
-  int error = 0;
-
   switch (which)
     {
     case PRIO_PROCESS:
@@ -3900,7 +3823,11 @@ setpriority (int which, id_t who, int value)
 	who = myself->pid;
       if ((pid_t) who == myself->pid)
 	{
-	  if (!SetPriorityClass (GetCurrentProcess (), prio))
+	  /* If realtime policy is set, keep prio but check its validity. */
+	  bool batch = (myself->sched_policy == SCHED_BATCH);
+	  DWORD prio = nice_to_winprio (value, batch);
+	  if (!set_and_check_winprio (GetCurrentProcess (), prio,
+	      (myself->sched_policy == SCHED_OTHER || batch)))
 	    {
 	      set_errno (EACCES);
 	      return -1;
@@ -3922,6 +3849,8 @@ setpriority (int which, id_t who, int value)
       set_errno (EINVAL);
       return -1;
     }
+
+  int error = 0;
   winpids pids ((DWORD) PID_MAP_RW);
   for (DWORD i = 0; i < pids.npids; ++i)
     {
@@ -3943,13 +3872,18 @@ setpriority (int which, id_t who, int value)
 		continue;
 	      break;
 	    }
-	  HANDLE proc_h = OpenProcess (PROCESS_SET_INFORMATION, FALSE,
-				       p->dwProcessId);
+	  HANDLE proc_h = OpenProcess (PROCESS_SET_INFORMATION |
+				       PROCESS_QUERY_LIMITED_INFORMATION,
+				       FALSE, p->dwProcessId);
 	  if (!proc_h)
 	    error = EPERM;
 	  else
 	    {
-	      if (!SetPriorityClass (proc_h, prio))
+	      bool batch = (p->sched_policy == SCHED_BATCH);
+	      DWORD prio = nice_to_winprio (value, batch);
+	      /* If realtime policy is set, keep prio but check its validity. */
+	      if (!set_and_check_winprio (proc_h, prio,
+		  (p->sched_policy == SCHED_OTHER || batch)))
 		error = EACCES;
 	      else
 		p->nice = value;
@@ -3978,10 +3912,14 @@ getpriority (int which, id_t who)
 	who = myself->pid;
       if ((pid_t) who == myself->pid)
         {
-          DWORD winprio = GetPriorityClass(GetCurrentProcess());
-          if (winprio != nice_to_winprio(myself->nice))
-            myself->nice = winprio_to_nice(winprio);
-          return myself->nice;
+	  bool batch = (myself->sched_policy == SCHED_BATCH);
+	  if (myself->sched_policy == SCHED_OTHER || batch)
+	    {
+	      DWORD winprio = GetPriorityClass (GetCurrentProcess());
+	      if (winprio != nice_to_winprio (myself->nice, batch))
+		myself->nice = winprio_to_nice (winprio, batch);
+	    }
+	  return myself->nice;
         }
       break;
     case PRIO_PGRP:
@@ -4033,7 +3971,16 @@ out:
 extern "C" int
 nice (int incr)
 {
-  return setpriority (PRIO_PROCESS, myself->pid, myself->nice + incr);
+  if (setpriority (PRIO_PROCESS, myself->pid, myself->nice + incr))
+    {
+      /* POSIX: EPERM instead of EACCES. */
+      set_errno (EPERM);
+      return -1;
+    }
+
+  /* POSIX: return the new nice value.  Linux glibc >= 2.2.4 provides
+     conformance with POSIX (FreeBSD returns 0). */
+  return myself->nice;
 }
 
 static void
@@ -4043,13 +3990,13 @@ locked_append (int fd, const void * buf, size_t size)
   int count = 0;
 
   do
-    if ((lock_buffer.l_start = lseek64 (fd, 0, SEEK_END)) != (off_t) -1
-	&& fcntl64 (fd, F_SETLKW, &lock_buffer) != -1)
+    if ((lock_buffer.l_start = lseek (fd, 0, SEEK_END)) != (off_t) -1
+	&& fcntl (fd, F_SETLKW, &lock_buffer) != -1)
       {
-	if (lseek64 (fd, 0, SEEK_END) != (off_t) -1)
+	if (lseek (fd, 0, SEEK_END) != (off_t) -1)
 	  write (fd, buf, size);
 	lock_buffer.l_type = F_UNLCK;
-	fcntl64 (fd, F_SETLK, &lock_buffer);
+	fcntl (fd, F_SETLK, &lock_buffer);
 	break;
       }
   while (count++ < 1000
@@ -4133,8 +4080,6 @@ utmpname (const char *file)
   debug_printf ("Setting UTMP file failed");
   return -1;
 }
-
-EXPORT_ALIAS (utmpname, utmpxname)
 
 /* Note: do not make NO_COPY */
 static struct utmp utmp_data_buf[16];
@@ -4351,15 +4296,10 @@ gethostid (void)
 {
   /* Fetch the globally unique MachineGuid value from
      HKLM/Software/Microsoft/Cryptography and hash it. */
-
-  /* Caution: sizeof long might become > 4 when we go 64 bit, but gethostid
-     is supposed to return a 32 bit value, despite the return type long.
-     That's why hostid is *not* long here. */
   int32_t hostid = 0x40291372; /* Choose a nice start value */
   WCHAR wguid[38];
 
-  reg_key key (HKEY_LOCAL_MACHINE,
-	       KEY_READ | (wincap.is_wow64() ? KEY_WOW64_64KEY : 0),
+  reg_key key (HKEY_LOCAL_MACHINE, KEY_READ,
 	       L"SOFTWARE", L"Microsoft", L"Cryptography", NULL);
   key.get_string (L"MachineGuid", wguid, 38,
 		  L"00000000-0000-0000-0000-000000000000");
@@ -4372,7 +4312,7 @@ gethostid (void)
 
 #define ETC_SHELLS "/etc/shells"
 static int shell_index;
-static struct __sFILE64 *shell_fp;
+static FILE *shell_fp;
 
 extern "C" char *
 getusershell ()
@@ -4391,7 +4331,7 @@ getusershell ()
   static char buf[PATH_MAX];
   int ch, buf_idx;
 
-  if (!shell_fp && !(shell_fp = fopen64 (ETC_SHELLS, "rt")))
+  if (!shell_fp && !(shell_fp = fopen (ETC_SHELLS, "rt")))
     {
       if (def_shells[shell_index])
 	return strcpy (buf, def_shells[shell_index++]);
@@ -4542,22 +4482,22 @@ popen (const char *command, const char *in_type)
          end of the pipe.  Otherwise don't pass our end of the pipe to the
 	 child process. */
       if (pipe_flags & O_CLOEXEC)
-	fcntl64 (__std[stdchild], F_SETFD, 0);
+	fcntl (__std[stdchild], F_SETFD, 0);
       else
-	fcntl64 (myfd, F_SETFD, FD_CLOEXEC);
+	fcntl (myfd, F_SETFD, FD_CLOEXEC);
 
       /* Also don't pass the file handle currently associated with stdin/stdout
 	 to the child.  This function may actually fail if the stdchild fd
 	 is closed.  But that's ok. */
-      int stdchild_state = fcntl64 (stdchild, F_GETFD, 0);
-      fcntl64 (stdchild, F_SETFD, stdchild_state | FD_CLOEXEC);
+      int stdchild_state = fcntl (stdchild, F_GETFD, 0);
+      fcntl (stdchild, F_SETFD, stdchild_state | FD_CLOEXEC);
 
       /* Start a shell process to run the given command without forking. */
-      pid_t pid = ch_spawn.worker ("/bin/sh", argv, cur_environ (), _P_NOWAIT,
+      pid_t pid = ch_spawn.worker ("/bin/sh", argv, environ, _P_NOWAIT,
 				   __std[0], __std[1]);
 
       /* Reinstate the close-on-exec state */
-      fcntl64 (stdchild, F_SETFD, stdchild_state);
+      fcntl (stdchild, F_SETFD, stdchild_state);
 
       /* If pid >= 0 then spawn_guts succeeded.  */
       if (pid >= 0)
@@ -4635,29 +4575,15 @@ pclose (FILE *fp)
 
 static int
 gen_full_path_at (char *path_ret, int dirfd, const char *pathname,
-		  bool null_pathname_allowed = false)
+		  int flags = 0)
 {
-  /* Set null_pathname_allowed to true to allow GLIBC compatible behaviour
-     for NULL pathname.  Only used by futimesat. */
-  if (!pathname && !null_pathname_allowed)
+  /* futimesat allows a NULL pathname. */
+  if (!pathname && !(flags & _AT_NULL_PATHNAME_ALLOWED))
     {
       set_errno (EFAULT);
       return -1;
     }
-  if (pathname)
-    {
-      if (!*pathname)
-	{
-	  set_errno (ENOENT);
-	  return -1;
-	}
-      if (strlen (pathname) >= PATH_MAX)
-	{
-	  set_errno (ENAMETOOLONG);
-	  return -1;
-	}
-    }
-  if (pathname && isabspath (pathname))
+  if (pathname && isabspath_strict (pathname))
     stpcpy (path_ret, pathname);
   else
     {
@@ -4665,29 +4591,36 @@ gen_full_path_at (char *path_ret, int dirfd, const char *pathname,
 
       if (dirfd == AT_FDCWD)
 	{
-	  cwdstuff::cwd_lock.acquire ();
+	  cwdstuff::acquire_read ();
 	  p = stpcpy (path_ret, cygheap->cwd.get_posix ());
-	  cwdstuff::cwd_lock.release ();
+	  cwdstuff::release_read ();
 	}
       else
 	{
 	  cygheap_fdget cfd (dirfd);
 	  if (cfd < 0)
 	    return -1;
-	  if (!cfd->pc.isdir ())
+	  if (!cfd->pc.isdir () && !(flags & AT_EMPTY_PATH))
 	    {
 	      set_errno (ENOTDIR);
 	      return -1;
 	    }
 	  p = stpcpy (path_ret, cfd->get_name ());
 	}
-      if (!p)
-	{
-	  set_errno (ENOTDIR);
-	  return -1;
-	}
       if (pathname)
 	{
+	  if (!*pathname)
+	    {
+	      if (flags & AT_EMPTY_PATH)
+		return 0;
+	      set_errno (ENOENT);
+	      return -1;
+	    }
+	  if (strlen (pathname) >= PATH_MAX)
+	    {
+	      set_errno (ENAMETOOLONG);
+	      return -1;
+	    }
 	  if (p[-1] != '/')
 	    *p++ = '/';
 	  stpcpy (p, pathname);
@@ -4761,17 +4694,27 @@ fchmodat (int dirfd, const char *pathname, mode_t mode, int flags)
   tmp_pathbuf tp;
   __try
     {
-      if (flags)
+      if (flags & ~AT_SYMLINK_NOFOLLOW)
 	{
-	  /* BSD has lchmod, but Linux does not.  POSIX says
-	     AT_SYMLINK_NOFOLLOW is allowed to fail on symlinks; but Linux
-	     blindly fails even for non-symlinks.  */
-	  set_errno ((flags & ~AT_SYMLINK_NOFOLLOW) ? EINVAL : EOPNOTSUPP);
+	  set_errno (EINVAL);
 	  __leave;
 	}
       char *path = tp.c_get ();
       if (gen_full_path_at (path, dirfd, pathname))
 	__leave;
+      if (flags & AT_SYMLINK_NOFOLLOW)
+	{
+          /* BSD has lchmod, but Linux does not.  POSIX says
+	     AT_SYMLINK_NOFOLLOW is allowed to fail on symlinks.
+	     Linux blindly fails even for non-symlinks, but we allow
+	     it to succeed. */
+	  path_conv pc (path, PC_SYM_NOFOLLOW, stat_suffixes);
+	  if (pc.issymlink ())
+	    {
+	      set_errno (EOPNOTSUPP);
+	      __leave;
+	    }
+	}
       return chmod (path, mode);
     }
   __except (EFAULT) {}
@@ -4785,14 +4728,21 @@ fchownat (int dirfd, const char *pathname, uid_t uid, gid_t gid, int flags)
   tmp_pathbuf tp;
   __try
     {
-      if (flags & ~AT_SYMLINK_NOFOLLOW)
+      if (flags & ~(AT_SYMLINK_NOFOLLOW | AT_EMPTY_PATH))
 	{
 	  set_errno (EINVAL);
 	  __leave;
 	}
       char *path = tp.c_get ();
-      if (gen_full_path_at (path, dirfd, pathname))
+      int res = gen_full_path_at (path, dirfd, pathname, flags);
+      if (res)
 	__leave;
+      if (!*pathname) /* Implies AT_EMPTY_PATH */
+	{
+	  /* If dirfd refers to a symlink (which was necessarily opened with
+	     O_PATH | O_NOFOLLOW), we must operate directly on that symlink. */
+	  flags = AT_SYMLINK_NOFOLLOW;
+	}
       return chown_worker (path, (flags & AT_SYMLINK_NOFOLLOW)
 				 ? PC_SYM_NOFOLLOW : PC_SYM_FOLLOW, uid, gid);
     }
@@ -4808,14 +4758,15 @@ fstatat (int dirfd, const char *__restrict pathname, struct stat *__restrict st,
   tmp_pathbuf tp;
   __try
     {
-      if (flags & ~AT_SYMLINK_NOFOLLOW)
+      if (flags & ~(AT_SYMLINK_NOFOLLOW | AT_EMPTY_PATH))
 	{
 	  set_errno (EINVAL);
 	  __leave;
 	}
       char *path = tp.c_get ();
-      if (gen_full_path_at (path, dirfd, pathname))
-	__leave;
+      int res = gen_full_path_at (path, dirfd, pathname, flags);
+      if (res)
+	  __leave;
       path_conv pc (path, ((flags & AT_SYMLINK_NOFOLLOW)
 			   ? PC_SYM_NOFOLLOW : PC_SYM_FOLLOW)
 			  | PC_POSIX | PC_KEEP_HANDLE, stat_suffixes);
@@ -4854,13 +4805,13 @@ utimensat (int dirfd, const char *pathname, const struct timespec *times,
 }
 
 extern "C" int
-futimesat (int dirfd, const char *pathname, const struct timeval *times)
+futimesat (int dirfd, const char *pathname, const struct timeval times[2])
 {
   tmp_pathbuf tp;
   __try
     {
       char *path = tp.c_get ();
-      if (gen_full_path_at (path, dirfd, pathname, true))
+      if (gen_full_path_at (path, dirfd, pathname, _AT_NULL_PATHNAME_ALLOWED))
 	__leave;
       return utimes (path, times);
     }
@@ -4875,6 +4826,8 @@ linkat (int olddirfd, const char *oldpathname,
 	int flags)
 {
   tmp_pathbuf tp;
+  fhandler_base *fh = NULL;
+
   __try
     {
       if (flags & ~(AT_SYMLINK_FOLLOW | AT_EMPTY_PATH))
@@ -4883,21 +4836,25 @@ linkat (int olddirfd, const char *oldpathname,
 	  __leave;
 	}
       char *oldpath = tp.c_get ();
-      /* AT_EMPTY_PATH with an empty oldpathname is equivalent to
-
-	   linkat(AT_FDCWD, "/proc/self/fd/<olddirfd>", newdirfd,
-		  newname, AT_SYMLINK_FOLLOW);
-
-	 Convert the request accordingly. */
       if ((flags & AT_EMPTY_PATH) && oldpathname && oldpathname[0] == '\0')
 	{
+	  /* Operate directly on olddirfd, which can be anything
+	     except a directory. */
 	  if (olddirfd == AT_FDCWD)
 	    {
 	      set_errno (EPERM);
 	      __leave;
 	    }
-	  __small_sprintf (oldpath, "/proc/%d/fd/%d", myself->pid, olddirfd);
-	  flags = AT_SYMLINK_FOLLOW;
+	  cygheap_fdget cfd (olddirfd);
+	  if (cfd < 0)
+	    __leave;
+	  if (cfd->pc.isdir ())
+	    {
+	      set_errno (EPERM);
+	      __leave;
+	    }
+	  fh = cfd;
+	  flags = 0;		/* In case AT_SYMLINK_FOLLOW was set. */
 	}
       else if (gen_full_path_at (oldpath, olddirfd, oldpathname))
 	__leave;
@@ -4916,6 +4873,8 @@ linkat (int olddirfd, const char *oldpathname,
 	    }
 	  strcpy (oldpath, old_name.get_posix ());
 	}
+      if (fh)
+	return fh->link (newpath);
       return link (oldpath, newpath);
     }
   __except (EFAULT) {}
@@ -4964,7 +4923,7 @@ mknodat (int dirfd, const char *pathname, mode_t mode, dev_t dev)
       char *path = tp.c_get ();
       if (gen_full_path_at (path, dirfd, pathname))
 	__leave;
-      return mknod32 (path, mode, dev);
+      return mknod (path, mode, dev);
     }
   __except (EFAULT) {}
   __endtry
@@ -4979,8 +4938,28 @@ readlinkat (int dirfd, const char *__restrict pathname, char *__restrict buf,
   __try
     {
       char *path = tp.c_get ();
-      if (gen_full_path_at (path, dirfd, pathname))
-	__leave;
+      int save_errno = errno;
+      int res = gen_full_path_at (path, dirfd, pathname);
+      if (res)
+	{
+	  if (errno != ENOENT && errno != ENOTDIR)
+	    __leave;
+	  /* pathname is an empty string.  This is OK if dirfd refers
+	     to a symlink that was opened with O_PATH | O_NOFOLLOW.
+	     In this case, readlinkat operates on the symlink.
+	     Don't propagate errors from gen_full_path_at after this point. */
+	  errno = save_errno;
+	  cygheap_fdget cfd (dirfd);
+	  if (cfd < 0
+	      || (!(cfd->issymlink ()
+		&& cfd->get_flags () & O_PATH
+		&& cfd->get_flags () & O_NOFOLLOW)))
+	    {
+	      set_errno (ENOENT);
+	      __leave;
+	    }
+	  strcpy (path, cfd->get_name ());
+	}
       return readlink (path, buf, bufsize);
     }
   __except (EFAULT) {}
@@ -5070,7 +5049,7 @@ unlinkat (int dirfd, const char *pathname, int flags)
   return -1;
 }
 
-static int __reg3
+static int
 pipe_worker (int filedes[2], unsigned int psize, int mode)
 {
   fhandler_pipe *fhs[2];
@@ -5092,6 +5071,7 @@ pipe_worker (int filedes[2], unsigned int psize, int mode)
   return res;
 }
 
+/* MS compatible version of pipe.  Hopefully nobody is using it... */
 extern "C" int
 _pipe (int filedes[2], unsigned int psize, int mode)
 {
@@ -5139,3 +5119,29 @@ pipe2 (int filedes[2], int mode)
   syscall_printf ("%R = pipe2([%d, %d], %y)", res, read, write, mode);
   return res;
 }
+
+extern "C" FILE *
+tmpfile (void)
+{
+  char *dir = getenv ("TMPDIR");
+  if (!dir)
+    dir = P_tmpdir;
+  int fd = open (dir, O_RDWR | O_BINARY | O_TMPFILE, S_IRUSR | S_IWUSR);
+  if (fd < 0)
+    return NULL;
+  FILE *fp = fdopen (fd, "wb+");
+  int e = errno;
+  if (!fp)
+    close (fd); // ..will remove tmp file
+  set_errno (e);
+  return fp;
+}
+
+EXPORT_ALIAS (close, _close)
+EXPORT_ALIAS (fsync, fdatasync)
+EXPORT_ALIAS (isatty, _isatty)
+EXPORT_ALIAS (lseek, _lseek)
+EXPORT_ALIAS (open, _open)
+EXPORT_ALIAS (read, _read)
+EXPORT_ALIAS (utmpname, utmpxname)
+EXPORT_ALIAS (write, _write)

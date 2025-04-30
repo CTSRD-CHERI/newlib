@@ -16,12 +16,6 @@ by prefixing with <literal>no</literal>.</para>
 <itemizedlist mark="bullet">
 
 <listitem>
-<para><envar>(no)dosfilewarning</envar> - If set, Cygwin will warn the
-first time a user uses an "MS-DOS" style path name rather than a POSIX-style
-path name.  Defaults to off.</para>
-</listitem>
-
-<listitem>
 <para><envar>(no)export</envar> - If set, the final values of these
 settings are re-exported to the environment as <envar>CYGWIN</envar> again.
 Defaults to off.</para>
@@ -29,13 +23,34 @@ Defaults to off.</para>
 
 <listitem>
 <para>
-<envar>error_start:Win32filepath</envar> - if set, runs 
-<filename>Win32filepath</filename> when cygwin encounters a fatal error,
-which is useful for debugging.  <filename>Win32filepath</filename> is
-usually set to the path to <command>gdb</command> or
-<command>dumper</command>, for example
-<filename>C:\cygwin\bin\gdb.exe</filename>. 
-There is no default set.
+<envar>error_start:Win32filepath</envar> - if set, runs
+<filename>Win32filepath</filename> when cygwin encounters a fatal error, which
+can be useful for debugging. Defaults to not set.
+</para>
+<para>
+<filename>Win32filepath</filename> is typically set to <command>gdb</command> or
+<command>dumper</command>.  If giving a path in
+<filename>Win32filepath</filename>, note that it is a Windows-style path and not
+a Cygwin path.
+</para>
+<para>
+The filename of the executing program and it's Windows process id are appended
+to the command as arguments.
+</para>
+<para>
+  Note: This takes priority over writing core dump or .stackdump files, if
+  enabled by <function>setrlimit(RLIMIT_CORE)</function> (e.g. via
+  <command>ulimit -c</command>).
+</para>
+<para>
+  Note: This has no effect if a debugger is already attached when the fatal
+  error occurs.
+</para>
+<para>
+  Note: The command invoked must either (i) attach to the errored process with
+  <function>DebugActiveProcess()</function>, or (ii) forcibly terminate the
+  errored process (with <function>TerminateProcess()</function> or similar), as
+  otherwise the errored process will wait forever for a debugger to attach.
 </para>
 </listitem>
 
@@ -53,8 +68,9 @@ If supplied, wildcard matching is case insensitive.  The default is <literal>noi
 </listitem>
 
 <listitem>
-<para><envar>(no)pipe_byte</envar> - causes Cygwin to open pipes in byte mode rather than
-message mode.</para>
+<para><envar>(no)pipe_byte</envar> - if set, Cygwin opens pipes in byte mode rather than
+message mode.  This is the default starting with Cygwin 3.4.0.
+</para>
 </listitem>
 
 <listitem>
@@ -78,11 +94,27 @@ in addition to the normal UNIX argv list.  Defaults to not set.</para>
 </listitem>
 
 <listitem>
-<para><envar>winsymlinks:{lnk,native,nativestrict}</envar> - if set to just
+<para><envar>(no)winjitdebug</envar> - if set, non-Cygwin executables
+started from a Cygwin process will have their error mode reset to the
+system default.  That means, if they don't call SetErrorMode()
+explicitly, the OS will display error dialog boxes in the GUI if some
+fatal error occurs.  Defaults to not set, so fatal errors in a
+non-Cygwin child process will just result in an error code be propagated
+back to the parent process.</para>
+</listitem>
+
+<listitem>
+<para><envar>winsymlinks:{lnk,native,nativestrict,sys}</envar></para>
+
+<itemizedlist mark="square">
+<listitem>
+<para>If set to just
 <literal>winsymlinks</literal> or <literal>winsymlinks:lnk</literal>,
 Cygwin creates symlinks as Windows shortcuts with a special header and
 the R/O attribute set.</para>
+</listitem>
 
+<listitem>
 <para>If set to <literal>winsymlinks:native</literal> or
 <literal>winsymlinks:nativestrict</literal>, Cygwin creates symlinks as
 native Windows symlinks on filesystems and OS versions supporting them.</para>
@@ -94,9 +126,27 @@ some reason, it will fall back to creating Cygwin default symlinks
 with <literal>winsymlinks:native</literal>, while with
 <literal>winsymlinks:nativestrict</literal> the <literal>symlink(2)</literal>
 system call will immediately fail.</para>
+</listitem>
+
+<listitem>
+<para>If set to <literal>winsymlinks:sys</literal>, Cygwin creates symlinks as
+plain files with the <literal>system</literal> attribute, containing a magic
+cookie followed by the path to which the link points.</para>
+</listitem>
+</itemizedlist>
+
+<para>Note that this setting has no effect where Cygwin knows that the
+filesystem only supports a creating symlinks in a specific way.</para>
 
 <para>For more information on symbolic links, see
 <xref linkend="pathnames-symlinks"></xref>.</para>
+
+</listitem>
+
+<listitem>
+<para><envar>disable_pcon</envar> - if set, pseudo console support in
+pty will be disabled.  This is for programs which do not work properly
+under pty with pseudo console enabled.  Defaults to not set.</para>
 </listitem>
 
 </itemizedlist>
@@ -123,6 +173,11 @@ explicitly in the open(2) call.
 <listitem>
 <para><envar>(no)detect_bloda</envar> - No case of a BLODA found by this
 option has been reported in years.</para>
+</listitem>
+
+<listitem>
+<para><envar>(no)dosfilewarning</envar> - This option had been disabled for
+quite some time and nobody missed it.</para>
 </listitem>
 
 <listitem>

@@ -1,5 +1,11 @@
-// import the cheribuildProject() step
-library 'ctsrd-jenkins-scripts'
+@Library('ctsrd-jenkins-scripts') _
+
+// Set the default job properties (work around properties() not being additive but replacing)
+setDefaultJobProperties([
+        [$class: 'GithubProjectProperty', displayName: '', projectUrlStr: 'https://github.com/CTSRD-CHERI/newlib/'],
+        copyArtifactPermission('*'),
+        rateLimitBuilds(throttle: [count: 1, durationName: 'hour', userBoost: true]),
+])
 
 cheribuildProject(
         target: "newlib-baremetal",

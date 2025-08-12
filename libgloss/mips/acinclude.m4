@@ -27,6 +27,20 @@ case "${target}" in
     MIPS_SCRIPT_LIST="idt pmon ddb ddb-kseg0 lsi idtecoff nullmon"
     MIPS_BSP_LIST="libidt.a libpmon.a liblsi.a libnullmon.a"
     ;;
+  mips64*-qemu-elf*cheri* | cheri-qemu-elf*cheri* | mips64*-qemu-*-purecap)
+    MIPS_PART_SPECIFIC_OBJ="vr5xxx.o cheri_init_globals.o"
+    MIPS_PART_SPECIFIC_DEFINES="-DR5000 -DQEMU_MALTA=1"
+    MIPS_SCRIPT_LIST="qemu-malta"
+    MIPS_PROGRAM_LIST="run_with_qemu.py"
+    MIPS_BSP_LIST="libmalta_mon.a libnullmon.a"
+    ;;
+  mips64*-qemu-elf* | cheri-qemu-elf*)
+    MIPS_PART_SPECIFIC_OBJ="vr5xxx.o"
+    MIPS_PART_SPECIFIC_DEFINES="-DR5000 -DQEMU_MALTA=1"
+    MIPS_SCRIPT_LIST="qemu-malta"
+    MIPS_PROGRAM_LIST="run_with_qemu.py"
+    MIPS_BSP_LIST="libmalta_mon.a libnullmon.a"
+    ;;
   mips64vr-*-* | mips64vrel-*-*)
     MIPS_PART_SPECIFIC_OBJ="vr5xxx.o cma101.o"
     MIPS_SCRIPT_LIST="ddb ddb-kseg0 nullmon"
@@ -43,5 +57,6 @@ esac
 AC_SUBST(MIPS_PART_SPECIFIC_OBJ)
 AC_SUBST(MIPS_PART_SPECIFIC_DEFINES)
 AC_SUBST(MIPS_SCRIPT_LIST)
+AC_SUBST(MIPS_PROGRAM_LIST)
 AC_SUBST(MIPS_BSP_LIST)
 AC_SUBST(MIPS_CRT0)

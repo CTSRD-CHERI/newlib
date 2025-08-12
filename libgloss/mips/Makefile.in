@@ -87,6 +87,7 @@ GCC_LDFLAGS = `if [ -d ${objroot}/../gcc ] ; \
 	then echo -L${objroot}/../gcc ; fi`
 
 SCRIPTS = @MIPS_SCRIPT_LIST@
+bin_PROGRAMS += @MIPS_PROGRAM_LIST@
 BSP = @MIPS_BSP_LIST@
 
 PART_SPECIFIC_DEFINES = @MIPS_PART_SPECIFIC_DEFINES@
@@ -212,10 +213,6 @@ install:
 	done
 	for script in ${SCRIPTS}; do\
 	  $(INSTALL_DATA) ${srcdir}/$${script}.ld $(DESTDIR)$(tooldir)/lib${MULTISUBDIR}/$${script}.ld; \
-	done
-	for program in ${PROGRAMS}; do\
-	  mkdir -p $(DESTDIR)$(tooldir)/bin; \
-	  $(INSTALL_PROGRAM) ${srcdir}/$${program} $(DESTDIR)$(tooldir)/bin/$${program}; \
 	done
 
 info:

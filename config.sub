@@ -1711,7 +1711,7 @@ case $os in
 	musl* | newlib* | relibc* | uclibc*)
 		;;
 	# Likewise for "kernel-abi"
-	eabi* | gnueabi*)
+	eabi* | gnueabi* | purecap)
 		;;
 	# VxWorks passes extra cpu info in the 4th filed.
 	simlinux | simwindows | spe)
@@ -1786,7 +1786,7 @@ case $kernel-$os in
 		;;
 	os2-emx)
 		;;
-	*-eabi* | *-gnueabi*)
+	*-eabi* | *-gnueabi* | *-purecap)
 		;;
 	-*)
 		# Blank kernel with real OS is always fine.

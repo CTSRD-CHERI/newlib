@@ -13,6 +13,10 @@
 
 #ifdef __CHERI_PURE_CAPABILITY__
 # define FPREGSOFF 15*SZREG
+#if defined(__riscv_zcherihybrid)
+  #define cspecialr csrr
+  #define cspecialw csrw
+#endif
 #else
 # define FPREGSOFF 14*SZREG
 #endif
